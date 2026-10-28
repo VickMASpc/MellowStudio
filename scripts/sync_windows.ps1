@@ -86,6 +86,7 @@ try {
     }
     if ($removed.Count) { Write-Host ('[Mellow] Removed ' + $removed.Count + ' verified merged local branch(es): ' + ($removed -join ', ')) -ForegroundColor Green }
     Write-Host '[Mellow] main synchronized. Root .venv and any independent/local work are preserved.' -ForegroundColor Green
+    exit 0
 } finally {
     Pop-Location
 }
