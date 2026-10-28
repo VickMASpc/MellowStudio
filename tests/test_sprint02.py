@@ -55,7 +55,7 @@ def test_v2_archive_deduplicates_cels_and_keeps_links(tmp_path):
     project_save(d,p)
     with ZipFile(p) as z:
         config=json.loads(z.read('project.json'))
-        assert config['schema']==2
+        assert config['schema']==3
         # 2 layers x 4 frames = 8 cels without dedupe; three links + independent
         assert len([n for n in z.namelist() if n.endswith('.png')])<8
     r=project_load(p)

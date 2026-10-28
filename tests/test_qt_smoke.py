@@ -122,3 +122,49 @@ def test_qt_failed_save_as_preserves_identity(tmp_path, monkeypatch):
     # Avoid opening the unsaved confirmation dialog in automated GUI smoke.
     window.dirty=False
     window.close()
+
+
+def test_qt_reference_workbench_and_refresh(tmp_path,monkeypatch):
+    from mellowstudio.model import Document, documents_equal, project_load
+    from mellowstudio.calibration import GridCalibration
+    from mellowstudio.reference_ui import ReferenceWorkbench
+    from PIL import Image, ImageDraw
+    app=QApplication.instance() or QApplication([])
+    window=Editor()
+    frame0=Image.new('RGBA',(90,80),'white')
+    draw=ImageDraw.Draw(frame0)
+    draw.rectangle((20,16,60,54),fill='navy')
+    frame1=Image.new('RGBA',frame0.size,'white')
+    frame1.paste(frame0,(3,-2))
+    doc=Document(15,10)
+    cfg=GridCalibration(15,10,6,8)
+    doc.add_reference(0,frame0,'base.png',cfg,rebuild=True)
+    doc.add_frame()
+    doc.add_reference(1,frame1,'shift.png',cfg,
+        registration={'dx':3,'dy':-2,'confidence':.92,'status':'candidate; manual approval'})
+    doc.active_frame=1
+    window.set_document(doc)
+    window.show();app.processEvents()
+    assert window.reference_dock.objectName()=='ReferenceDock'
+    assert window.mode_label.text().startswith('  PIXEL WORKSPACE')
+    assert 'shift.png' in window.source_info.text()
+    original=window.doc.copy()
+    lab=ReferenceWorkbench(window.doc,window)
+    assert lab.table.rowCount()==2
+    lab.table.selectRow(1)
+    lab.accept_candidate()
+    assert lab.ox.value()==3.0
+    assert lab.oy.value()==-2.0
+    lab.commit_all()
+    assert lab.result()==lab.DialogCode.Accepted
+    assert lab.doc.reference_for_frame(1).config().origin_x==3.0
+    window.history.begin(window.doc)
+    window.doc=lab.doc
+    assert window.history.commit(window.doc)
+    window.refresh_all();app.processEvents()
+    assert 'origin 3, -2' in window.source_info.text()
+    window.undo()
+    assert documents_equal(window.doc,original)
+    assert window._save_to_path(tmp_path/'reference_ui.mellowzip')
+    assert project_load(tmp_path/'reference_ui.mellowzip').reference_for_frame(1) is not None
+    window.close()

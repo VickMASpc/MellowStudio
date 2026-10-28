@@ -1,6 +1,6 @@
 # Mellow Studio — product specification & development cycle
 
-**Canonical roadmap:** this file in GitHub. **Current merged baseline:** v0.2.1 on 2026-10-28; **active development:** v0.2.2 (PR #2); **next sprint:** 0.2.2 reliability and transactions ([Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3)). Keep the [sprint log](SPRINT_LOG.md) synchronized with each implementation PR. Future phase targets below are not claims of verified functionality.
+**Canonical roadmap:** this file in GitHub. **Current merged baseline:** v0.2.2 (PR #5); **active next sprint:** v0.2.3 Reference Lab and image registration ([Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3)). Keep the [sprint log](SPRINT_LOG.md) synchronized with each implementation PR. Future phase targets below are not claims of verified functionality.
 
 ## A. The problem worth solving
 
@@ -24,7 +24,7 @@ No browser-window UI, no server, no cloud dependency, no mandatory external conf
 
 ## C. Full professional feature inventory (tracked, not forgotten)
 
-Legend: **0.1–0.2.1** completed source milestones with limitations; **0.2.2** reliability; **0.2.3** measured-reference pipeline; **0.3A** professional painting; **0.3B** animation; **0.4** production/interoperability; **0.5+** tiles/advanced systems; **1.0** release hardening. A phase is a target, **not evidence of implementation or acceptance**. Status lives in `SPRINT_LOG.md`.
+Legend: **0.1–0.2.2** merged source milestones with limitations; **0.2.2** reliability; **0.2.3** measured-reference pipeline; **0.3A** professional painting; **0.3B** animation; **0.4** production/interoperability; **0.5+** tiles/advanced systems; **1.0** release hardening. A phase is a target, **not evidence of implementation or acceptance**. Status lives in `SPRINT_LOG.md`.
 
 ### Canvas, drawing, and color
 
@@ -166,7 +166,7 @@ Qt canvas / timeline / actions / shortcuts
 
 **0.2.2 — reliability and interaction quality (NEXT; [Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3)):** per-project recovery identity/history; save-failure, archive corruption and rollback tests; GUI mutation/undo transaction boundaries; cached composites and lazy thumbnail invalidation; keyboard focus/high-DPI interactions; and measured performance on 41×55 and 128×128/8 layers/24 frames. **Exit:** no silent loss in fault-injection tests, 20 consecutive duplicate/edit/undo cycles, a clean 60-second Windows drawing session, meaningful RAM and latency readings. Capture 5700U results when available; CI is not a substitute.
 
-**0.2.3 — flagship reference-to-animation:** retain source asset/provenance, measured calibration per frame and cropping/offset diagnostics; reversible landmark registration for same-size but misaligned screenshots; overlay/wipe/difference views; manual corrections and source-to-cel replay. **Exit:** F3 passes on 12 mixed-offset references, with after-reopen re-editable registration and no silent resampling changes.
+**0.2.3 — flagship reference-to-animation (IN PROGRESS):** implemented phase one: v3 embedded source assets and sampling provenance, per-frame calibration/registration, suggest-only translation offsets, red/cyan difference preview, manual reconstruction via Reference Lab, and 12 cropped/offset same-dimension references whose 41×55 output is identical. **Still in phase:** distinct crop/scale changes beyond translations, manually marked landmark registration, wipe/heatmap comparison modes, detection of content lost beyond image boundaries, advanced sampling and reference-cel provenance in further edits. **Exit:** F3 passes on 12 mixed-offset references, with after-reopen re-editable registration and no silent resampling changes; separately verify variable-scale and occluded crops before full sprint acceptance.
 
 **0.3A — professional painting:** pixel-perfect strokes, dither/custom brushes, full color input/palettes, advanced selections/boolean masks/transforms, layer groups/clipping and shortcut customization. **Exit:** create and refine a finished layered 128×128 sprite without another painting program; selection/undo/reopen tests pass.
 
@@ -200,7 +200,7 @@ Target test machine: Ryzen 7 5700U with integrated graphics and 16 GB RAM. **Tar
 5. **Keyboard conflicts:** single-letter tools must not fire while editing labels/spin boxes. GUI smoke tests must focus these edge cases.
 6. **Windows packaging:** initial source ZIP runs after installing Python/requirements. EXE must be built and smoke-tested on Windows, not merely assumed from build scripts.
 7. **Scope creep:** the complete feature inventory remains visible, but each increment must be a working end-to-end path, not a UI button attached to a placeholder.
-8. **Same-size misregistration:** source dimensions do not reveal different crop offsets, palette halos or source scaling; per-frame registration is the 0.2.3 differentiator.
+8. **Same-size misregistration:** source dimensions do not reveal crop offsets or actual pose movements. Suggest translations only with explicit review; variable zoom, scale and irrecoverable edge cropping remain open. Original 268×360 → 41×55 stays a hard regression.
 9. **Recovery collisions:** a shared autosave filename is not sufficient for multiple projects; 0.2.2 is explicitly a data-safety sprint.
 10. **Viewport scaling:** composite rebuilds and eager timeline thumbnails risk stalls; invalidate selectively and benchmark.
 11. **CI bypass:** the PR documentation gate is advisory until branch protection makes its successful status required.
@@ -210,8 +210,16 @@ Target test machine: Ryzen 7 5700U with integrated graphics and 16 GB RAM. **Tar
 
 - **Merged v0.2.0:** linked holds/cels, independently editable frames, multi-select/clipboard, v2 project archive with v1 read support, suggest-only auto-grid candidates, fractional manual calibration and batch exports.
 - **Merged v0.2.1:** floating pixels with explicit commit/cancel, selected timeline drag reorder and bounded compressed snapshot undo/redo; [PR #2](https://github.com/VickMASpc/MellowStudio/pull/2) merged. Latest `main` CI passes on Windows/Linux. Manual Windows launch/testing was reported successful, but interaction-intensive acceptance remains ongoing.
-- **Not shipped:** tile/run undo deltas; robust project-specific recovery; source-reference retention/alignment across different crops; render/thumbnail caches; advanced palette/brush/onion systems; full production interoperability and Windows installer validation.
-- **Active next milestone:** 0.2.2 ([Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3)). The evidence, defects, metrics and next actions live in [SPRINT_LOG.md](SPRINT_LOG.md).
+- **Still open:** tile/run undo deltas; full registration across unequal scales and true crop loss; manual UI polish/Windows testing; advanced palette/brush/onion systems; full production interoperability and Windows installer validation.
+- **Active next milestone:** 0.2.3 reference registration. 0.2.2 issue #3 remains open for deferred acceptance gates. The evidence, defects, metrics and next actions live in [SPRINT_LOG.md](SPRINT_LOG.md).
+
+## J.1 Sprint 0.2.3 working implementation (2026-10-28)
+
+- **Now implemented in code:** `ReferenceAsset` data model, immutable embedded PNG source bytes per registered frame, schema 3 persistence plus v1/v2 loading, stored per-frame fractional origin/pitch and sampling mode; frame reorders and history preserve provenance. Shared duplicated reference assets detach before single-frame calibration edits.
+- **Reference Lab Qt UI:** file import opens a reference registration review dialog (when a measured sequence is selected); manual origin adjustment, red/cyan difference, explicit suggested-offset adoption, per-frame source-to-logical reconstruction and a right-side reference dock; calibration remains editable after loading a saved document. Workspace header and palette refresh are deliberately secondary to this pipeline.
+- **Verified headless fixture:** `examples/reference_lab_12frame_demo.mellowzip` contains twelve original 268×360 offset screenshots whose registered cels are exactly 41×55. At baseline all cels compare byte-for-byte to Mellow, including one-cell eye highlights at (16,19)/(24,19); source bytes and calibrations survive project round trips and undo.
+- **Correctness fix:** source center sampling now consistently uses the floor of the actual source-space cell center, avoiding Python round-to-even half-pixel drift.
+- **Not yet finished:** affine/scale or perspective registration, landmark placement in the workbench, robust detection of lost boundary content, full wipe/heatmap reference inspector, stress profiling of large screenshot sequences. Qt UI smoke and physical Windows test are distinct from headless CI.
 
 ## K. Mandatory sprint documentation and change control
 

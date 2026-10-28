@@ -19,14 +19,16 @@ from PySide6.QtWidgets import (
 )
 
 from .model import (Document, History, project_load, project_save, blank,
-                    flip_cel, draw_stroke, FloatingSelection)
+                    flip_cel, draw_stroke, FloatingSelection, documents_equal)
 from .recovery import RecoveryStore
 from .samples import mellow_document
 from .canvas import PixelCanvas, qimage_from_pil, pil_from_qimage
 from .importer import ImportDialog
+from .reference_ui import ReferenceWorkbench
+from .reference import suggest_translation, calibration_dict
 
 APP_TITLE = 'Mellow Studio'
-VERSION = '0.2.2-dev'
+VERSION = '0.2.3-dev'
 
 
 class Swatch(QPushButton):
@@ -166,6 +168,8 @@ class Editor(QMainWindow):
         self.build_palette()
         self.build_timeline()
         self.build_preview()
+        self.build_reference_dock()
+        self.build_studio_bar()
         self.status=QLabel('Pixel (–, –)')
         self.statusBar().addPermanentWidget(self.status)
         self.zoom_label=QLabel('12×')
@@ -201,6 +205,7 @@ class Editor(QMainWindow):
         self.add_action(file,'Open bundled Mellow (41×55)',self.open_mellow)
         self.add_action(file,'Import measured screenshot…',self.import_reference,'Ctrl+I')
         self.add_action(file,'Import measured image sequence…',self.import_measured_sequence)
+        self.add_action(file,'Reference Lab: review / re-register sources…',self.open_reference_lab,'Ctrl+Alt+R')
         self.add_action(file,'Import spritesheet as frames…',self.import_spritesheet)
         self.add_action(file,'Import PNG as new project…',self.import_raw_png)
         file.addSeparator()
@@ -261,6 +266,7 @@ class Editor(QMainWindow):
         self.add_action(view,'Zoom actual logical pixels',lambda:self.canvas.set_zoom(1),'Ctrl+1')
         self.add_action(view,'Zoom to fit',self.zoom_fit,'Ctrl+0')
         self.add_action(view,'Reset panel layout',self.reset_layout)
+        self.add_action(view,'Reference Lab…',self.open_reference_lab)
 
         help=bar.addMenu('&Help')
         self.add_action(help,'Keyboard shortcuts',self.show_shortcuts,'F1')
@@ -433,6 +439,81 @@ class Editor(QMainWindow):
         self.preview_dock=self.build_dock('Live preview','PreviewDock',root,
                                          Qt.DockWidgetArea.RightDockWidgetArea)
 
+    def build_studio_bar(self):
+        """Small purposeful studio chrome, no browser/window imitation."""
+        bar=QToolBar('Studio controls',self)
+        bar.setObjectName('StudioControlBar')
+        bar.setMovable(False)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea,bar)
+        logo=QLabel('  ◈  MELLOW  /  STUDIO  ')
+        logo.setObjectName('StudioWordmark')
+        bar.addWidget(logo)
+        self.mode_label=QLabel('  PIXEL WORKSPACE  •  TRUE RESOLUTION  ')
+        self.mode_label.setObjectName('StudioKicker')
+        bar.addWidget(self.mode_label)
+        bar.addSeparator()
+        for label,callback,tooltip in [
+            ('+ FRAME',self.duplicate_frame,'Duplicate independent frame (Ctrl+D)'),
+            ('▶ PLAY',self.toggle_play,'Preview active animation'),
+            ('◈ ALIGN',self.open_reference_lab,'Review retained reference sources'),
+            ('SAVE',self.save_project,'Save current project')]:
+            button=QToolButton();button.setText(label);button.setToolTip(tooltip)
+            if label=='◈ ALIGN':button.setObjectName('AccentAction')
+            button.clicked.connect(callback);bar.addWidget(button)
+
+    def build_reference_dock(self):
+        root=QWidget();layout=QVBoxLayout(root)
+        marker=QLabel('◈  SOURCE / REGISTRATION')
+        marker.setObjectName('StudioKicker')
+        layout.addWidget(marker)
+        self.source_info=QLabel('No source image linked to this frame.')
+        self.source_info.setWordWrap(True)
+        layout.addWidget(self.source_info)
+        self.source_small=QLabel('')
+        self.source_small.setMinimumHeight(135)
+        self.source_small.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.source_small.setObjectName('ReferencePreview')
+        layout.addWidget(self.source_small)
+        button=QPushButton('Open Reference Lab  /  Ctrl+Alt+R')
+        button.setObjectName('AccentAction')
+        button.clicked.connect(self.open_reference_lab)
+        layout.addWidget(button)
+        layout.addStretch()
+        self.reference_dock=self.build_dock('Reference Lab','ReferenceDock',root,
+                                            Qt.DockWidgetArea.RightDockWidgetArea)
+        self.tabifyDockWidget(self.preview_dock,self.reference_dock)
+
+    def refresh_reference_panel(self):
+        if not hasattr(self,'source_info'):return
+        asset=self.doc.reference_for_frame()
+        if asset is None:
+            self.source_info.setText('No source linked to this frame. Import a measured image sequence to retain sources.')
+            self.source_small.clear()
+            return
+        cfg=asset.config()
+        self.source_info.setText(f'{asset.name}  •  {asset.source_size[0]}×{asset.source_size[1]} source\n'
+            f'{cfg.cols}×{cfg.rows} logical  •  origin {cfg.origin_x:g}, {cfg.origin_y:g}\n'
+            f'{asset.registration.get("status", "Manual calibration")}')
+        image=qimage_from_pil(asset.image())
+        self.source_small.setPixmap(QPixmap.fromImage(image).scaled(244,174,
+            Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation))
+
+    def open_reference_lab(self):
+        if not self.doc.references:
+            self.statusBar().showMessage('No embedded references yet. Import a measured screenshot or sequence.',4000)
+            return
+        self.commit_floating()
+        dialog=ReferenceWorkbench(self.doc,self)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:
+            return
+        if documents_equal(self.doc,dialog.doc):
+            return
+        self.history.begin(self.doc)
+        self.doc=dialog.doc
+        self.finish_edit()
+        self.refresh_all()
+        self.statusBar().showMessage('Reference registration updated; native pixels rebuilt and source preserved.',4500)
+
     def set_tool(self,tool):
         if tool not in ('move', 'marquee') and hasattr(self, 'canvas'):
             self.commit_floating()
@@ -533,6 +614,7 @@ class Editor(QMainWindow):
             self.refresh_layers()
             self.refresh_palette()
             self.refresh_preview()
+            self.refresh_reference_panel()
             self.update_title()
             self.sym_x_box.toggled.connect(lambda v:setattr(self.canvas,'sym_x',v)) if not getattr(self,'_sym_connected',False) else None
             self.sym_y_box.toggled.connect(lambda v:setattr(self.canvas,'sym_y',v)) if not getattr(self,'_sym_connected',False) else None
@@ -706,6 +788,7 @@ class Editor(QMainWindow):
         self.duration.setValue(self.doc.frames[index].duration_ms)
         self.duration.blockSignals(False)
         self.refresh_preview()
+        self.refresh_reference_panel()
 
     def duration_changed(self,value):
         if self._refreshing:return
@@ -726,6 +809,7 @@ class Editor(QMainWindow):
         self.duration.setValue(self.doc.frames[self.doc.active_frame].duration_ms)
         self.duration.blockSignals(False)
         self.refresh_preview()
+        self.refresh_reference_panel()
 
     def previous_frame(self):
         self.set_frame_fast(self.doc.active_frame-1)
@@ -1041,37 +1125,43 @@ class Editor(QMainWindow):
             self.set_document(mellow_document())
 
     def import_measured_sequence(self):
-        """Calibrate once, then convert an entire screenshot sequence to true pixels."""
+        """Register screenshot sequences without assuming equal-size equals aligned."""
         import re
-        paths,_=QFileDialog.getOpenFileNames(self,'Choose reference frames (same measured grid)',
+        paths,_=QFileDialog.getOpenFileNames(self,'Choose screenshots for measured animation',
                      '', 'Images (*.png *.jpg *.jpeg *.bmp *.gif *.webp)')
         if not paths:return
         paths=sorted(paths,key=lambda p:[int(t) if t.isdigit() else t.lower()
                                  for t in re.split(r'(\d+)',Path(p).name)])
         try:
-            with Image.open(paths[0]) as im:
-                first=im.convert('RGBA')
+            images=[]
+            for path in paths:
+                with Image.open(path) as im:
+                    images.append(im.convert('RGBA'))
+            first=images[0]
             dialog=ImportDialog(self,first,(self.doc.width,self.doc.height))
             if dialog.exec()!=QDialog.DialogCode.Accepted:return
             cfg=dialog.cfg
-            frames=[dialog.result_image]
-            for path in paths[1:]:
-                with Image.open(path) as im:src=im.convert('RGBA')
-                if src.size != first.size:
-                    raise ValueError(f'{Path(path).name}: reference size differs. All frames must use the same calibrated screen pixel grid.')
-                frames.append(cfg.extract(src,['median','center','dominant'][dialog.sampling.currentIndex()]))
+            sampling=['median','center','dominant'][dialog.sampling.currentIndex()]
+            staged=Document(cfg.cols,cfg.rows,Path(paths[0]).stem+' · measured animation')
+            staged.cel.paste(dialog.result_image)
+            staged.add_reference(0,first,Path(paths[0]).name,cfg,sampling,
+                {'dx':0,'dy':0,'confidence':1.,'status':'anchor reference; do not infer pose movement'})
+            for path,image in zip(paths[1:],images[1:]):
+                suggestion=suggest_translation(first,image,max_shift=12)
+                staged.add_frame()
+                staged.cel.paste(cfg.extract(image,sampling))
+                staged.add_reference(staged.active_frame,image,Path(path).name,cfg,sampling,
+                    {'dx':suggestion.dx,'dy':suggestion.dy,
+                     'confidence':suggestion.confidence,'status':suggestion.status,
+                     'applied':False})
+            staged.active_frame=0
+            staged.guides=[{'name':'Measured native pixel grid','pitch_x':cfg.pitch_x,
+                            'pitch_y':cfg.pitch_y,'origin_x':cfg.origin_x,'origin_y':cfg.origin_y}]
+            lab=ReferenceWorkbench(staged,self)
+            if lab.exec()!=QDialog.DialogCode.Accepted:return
             if not self.confirm_discard():return
-            doc=Document(cfg.cols,cfg.rows,Path(paths[0]).stem+' · measured animation')
-            doc.cel.paste(frames[0])
-            for image in frames[1:]:
-                doc.add_frame()
-                doc.cel.paste(image)
-            doc.active_frame=0
-            doc.guides=[{'name':'Shared measured reference grid',
-                         'pitch_x':cfg.pitch_x,'pitch_y':cfg.pitch_y,
-                         'origin_x':cfg.origin_x,'origin_y':cfg.origin_y}]
-            self.set_document(doc)
-            self.statusBar().showMessage(f'{len(frames)} measured reference images converted into editable native-pixel frames.',5000)
+            self.set_document(lab.doc)
+            self.statusBar().showMessage(f'Imported {len(images)} editable frames with persistent source references.',5500)
         except Exception as exc:
             QMessageBox.warning(self,'Measured sequence import failed',str(exc))
 
@@ -1130,6 +1220,8 @@ class Editor(QMainWindow):
             src=dialog.result_image
             self.set_document(Document(src.width,src.height,Path(path).stem+' · measured'))
             self.doc.cel.paste(src)
+            sampling=['median','center','dominant'][dialog.sampling.currentIndex()]
+            self.doc.add_reference(0, source, Path(path).name, dialog.cfg, sampling)
             self.doc.guides=[{'name':'Reference calibration','pitch_x':dialog.cfg.pitch_x,
                 'pitch_y':dialog.cfg.pitch_y,'origin_x':dialog.cfg.origin_x,
                 'origin_y':dialog.cfg.origin_y,'source_size':[source.width,source.height]}]
@@ -1299,6 +1391,7 @@ class Editor(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.layer_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.palette_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.preview_dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.reference_dock)
         self.tabifyDockWidget(self.layer_dock,self.palette_dock)
         self.layer_dock.raise_()
 
@@ -1323,7 +1416,7 @@ class Editor(QMainWindow):
           'Ctrl+Z/Y undo/redo · Ctrl+C/X/V copy/cut/paste · Ctrl+A select all · '
           'Ctrl+Shift+A deselect · Arrow keys position a floating selection (Shift = 10).\n'
           'Ctrl+Enter commits floating pixels · Esc cancels the uncommitted float.\n'
-          'Ctrl+N/O/S new/open/save · Ctrl+I measured import · Ctrl+E export PNG.\n'
+          'Ctrl+N/O/S new/open/save · Ctrl+I measured import · Ctrl+Alt+R Reference Lab · Ctrl+E export PNG.\n'
           'G show grid · Shift+O onion skin · Ctrl+mouse wheel zoom · middle drag pan · '
           '[ and ] brush size · right mouse secondary color.\n\n'
           'Controls and panels are dockable and stored between sessions.')
@@ -1339,20 +1432,7 @@ def main():
     app.setApplicationName(APP_TITLE)
     app.setOrganizationName('MellowStudio')
     app.setStyle('Fusion')
-    app.setStyleSheet('''
-      QMainWindow, QDialog, QWidget { background-color:#252d3b; color:#ebf0f7; }
-      QMenuBar, QMenu, QStatusBar, QToolBar, QDockWidget { background-color:#202735; color:#ebf0f7; }
-      QMenuBar::item:selected, QMenu::item:selected {background:#455371;}
-      QDockWidget::title {background:#333e52; padding:7px 8px; font-weight:bold;}
-      QPushButton, QToolButton {background:#39465b; border:1px solid #52617c; border-radius:4px; padding:5px;}
-      QPushButton:hover, QToolButton:hover {background:#4d5e7a;}
-      QToolButton:checked {background:#466f9c; border:1px solid #9bcdf7;}
-      QLineEdit,QSpinBox,QDoubleSpinBox,QComboBox,QListWidget {background:#202735; border:1px solid #52617c; border-radius:3px; color:#edf2fc; padding:3px;}
-      QListWidget::item:selected {background:#466f9c;}
-      QLabel, QCheckBox {color:#edf1f8;}
-      QScrollBar {background:#1d2634;}
-      QScrollBar::handle {background:#536781; border-radius:3px;}
-    ''')
+    app.setStyleSheet("\nQWidget { background-color:#181c27; color:#e9eafa; font-family:'Segoe UI'; font-size:10pt; }\nQMainWindow, QDialog { background-color:#181c27; }\nQMenuBar, QMenu, QStatusBar { background-color:#141823; color:#b4bfd2; }\nQMenuBar::item { padding:6px 11px; }\nQMenuBar::item:selected, QMenu::item:selected { background:#343c56; color:#fff; }\nQToolBar { background:#202534; border:0; spacing:5px; padding:5px; }\nQToolBar#StudioControlBar { background:#171d2d; border-bottom:1px solid #39445c; }\nQDockWidget { color:#bdc8e0; border:0; }\nQDockWidget::title { background:#252c3e; border-top:1px solid #3b4761; padding:9px 12px; font-weight:600; }\nQLabel#StudioWordmark { color:#e5d49a; font-weight:800; font-size:13pt; background:#171d2d; }\nQLabel#StudioKicker { color:#91b6ce; font-size:9pt; font-weight:700; }\nQLabel#ReferencePreview { background:#101520; border:1px solid #46516e; border-radius:6px; padding:4px; }\nQPushButton, QToolButton { background:#30384e; color:#f0f1fa; border:1px solid #45536d; border-radius:6px; padding:7px 10px; font-weight:500; }\nQPushButton:hover, QToolButton:hover { background:#43516c; border:1px solid #86c9dd; }\nQPushButton:pressed, QToolButton:pressed { background:#26354a; }\nQPushButton#AccentAction, QToolButton#AccentAction { background:#235c6d; border:1px solid #389ab3; color:#f2fcff; font-weight:700; }\nQPushButton#AccentAction:hover, QToolButton#AccentAction:hover { background:#307b8b; }\nQToolButton:checked { background:#315d71; border:1px solid #e4d18a; color:#fff; }\nQLineEdit,QSpinBox,QDoubleSpinBox,QComboBox,QListWidget,QTableWidget { background:#202637; border:1px solid #45536d; border-radius:5px; color:#edf4fc; padding:4px; selection-background-color:#386c7d; }\nQListWidget::item:selected, QTableWidget::item:selected { background:#345970; }\nQHeaderView::section { background:#293349; color:#dce8f6; border:0; border-right:1px solid #3d4960; padding:6px; }\nQLabel, QCheckBox { color:#cbd5e6; }\nQScrollBar { background:#161e2b; width:11px; height:11px; }\nQScrollBar::handle { background:#4a6782; border-radius:4px; }\nQSlider::groove:horizontal { background:#35435a; height:5px; border-radius:2px; }\nQSlider::handle:horizontal { background:#b6d5e1; width:13px; margin:-4px 0; border-radius:6px; }\nQTabBar::tab { background:#222b3d; color:#a8b9d1; padding:8px 15px; }\nQTabBar::tab:selected { background:#34536b; color:#fff; border-top:2px solid #c9b779; }\n")
     window=Editor()
     window.show()
     sys.exit(app.exec())

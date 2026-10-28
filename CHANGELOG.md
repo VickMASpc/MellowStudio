@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — Sprint 0.2.3 Reference Lab + Qt UI refinement
+
+- Embedded losslessly decoded source reference pixels in v3 `.mellowzip` archives; v1 and v2 remain readable.
+- Per-frame reference IDs persist across frame reorders, clipboard, compressed undo, recovery and save/reopen.
+- Added explicit source-grid registration review with red/cyan comparison, exact fractional origins, reconstruction previews and reversible per-frame application.
+- Added suggest-only edge-contrast translation diagnostics; mismatched dimensions are flagged instead of silently registered.
+- Introduced a distinct Reference Lab dock and studio command header; refined Qt dark theme and action contrast.
+- Fixed center-sampling tie behavior when grid boundaries have fractional shifts.
+- Included a 12-frame, mixed-offset, exactly reconstructed 41×55 Mellow regression project and tests.
+- Pending: landmark-assisted alignment, real scale differences, occluded/cropped edge recovery, source-level JPEG byte preservation, full visual audit heatmap, and physical Windows visual acceptance.
+
+
 ## Unreleased — Sprint 0.2.2 development
 
 - Added two-color adjustable ordered-dither paint tool, shortcut D, and 4×4 Bayer pattern with exact-cell continuity.

@@ -19,6 +19,8 @@ from zipfile import ZipFile, ZIP_DEFLATED
 
 from PIL import Image, ImageDraw
 
+from .reference import ReferenceAsset
+
 RGBA = tuple[int, int, int, int]
 TRANSPARENT: RGBA = (0, 0, 0, 0)
 
@@ -45,6 +47,7 @@ class Layer:
 class Frame:
     duration_ms: int = 100
     cels: dict[str, Image.Image] = field(default_factory=dict)
+    reference_id: str | None = None
 
     def copy(self, memo: dict[int, Image.Image] | None = None) -> Frame:
         """Deep-copy pixels; an optional shared memo preserves linked exposures."""
@@ -55,7 +58,7 @@ class Frame:
             if id(im) not in memo:
                 memo[id(im)] = im.copy()
             cels[key] = memo[id(im)]
-        return Frame(self.duration_ms, cels)
+        return Frame(self.duration_ms, cels, self.reference_id)
 
 
 @dataclass
@@ -73,6 +76,7 @@ class Document:
         '#417d6f', '#765e9c', '#be6eb6', '#dbb1cd',
     ])
     guides: list[dict] = field(default_factory=list)
+    references: list[ReferenceAsset] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         validate_size(self.width, self.height)
@@ -102,7 +106,8 @@ class Document:
         return Document(self.width, self.height, self.name,
             [Layer(k.id, k.name, k.visible, k.locked, k.opacity) for k in self.layers],
             [f.copy(memo) for f in self.frames], self.active_frame, self.active_layer,
-            list(self.palette), [dict(g) for g in self.guides])
+            list(self.palette), [dict(g) for g in self.guides],
+            [r.copy() for r in self.references])
 
     @property
     def cel(self) -> Image.Image:
@@ -132,7 +137,7 @@ class Document:
     def duplicate_frame(self, linked: bool = False) -> int:
         """Duplicate full frame. Linked exposures share *live* cel images until unlinked."""
         src = self.frames[self.active_frame]
-        new = Frame(src.duration_ms, dict(src.cels)) if linked else src.copy()
+        new = Frame(src.duration_ms, dict(src.cels), src.reference_id) if linked else src.copy()
         self.frames.insert(self.active_frame + 1, new)
         self.active_frame += 1
         return self.active_frame
@@ -201,7 +206,8 @@ class Document:
         if len(self.frames) + len(chosen) > 2000:
             raise ValueError('Maximum 2000 frames per project.')
         if linked:
-            block = [Frame(self.frames[i].duration_ms, dict(self.frames[i].cels)) for i in chosen]
+            block = [Frame(self.frames[i].duration_ms, dict(self.frames[i].cels),
+                           self.frames[i].reference_id) for i in chosen]
             after = chosen[-1]
             self.frames[after+1:after+1] = block
             self.active_frame = after+1
@@ -268,7 +274,7 @@ class Document:
         if not 16 <= duration <= 10000:
             raise ValueError('Frame duration must be between 16 and 10000 ms.')
         anchor = self.active_frame
-        self.frames[anchor+1:anchor+1] = [Frame(duration, dict(src.cels)) for _ in range(count)]
+        self.frames[anchor+1:anchor+1] = [Frame(duration, dict(src.cels), src.reference_id) for _ in range(count)]
         self.active_frame = anchor+1
         return list(range(anchor+1,anchor+count+1))
 
@@ -324,6 +330,57 @@ class Document:
         self.width, self.height = width, height
 
 
+    def reference_for_frame(self, index: int | None = None) -> ReferenceAsset | None:
+        index = self.active_frame if index is None else index
+        rid = self.frames[index].reference_id
+        return next((ref for ref in self.references if ref.id == rid), None)
+
+    def add_reference(self, frame_index: int, image: Image.Image, name: str,
+                      cfg, sampling: str = 'median', registration: dict | None = None,
+                      *, rebuild: bool = False) -> ReferenceAsset:
+        if not 0 <= frame_index < len(self.frames):
+            raise IndexError('Reference frame index outside animation.')
+        if (cfg.cols, cfg.rows) != (self.width, self.height):
+            raise ValueError('Reference logical dimensions must match the document.')
+        asset = ReferenceAsset.from_image(image, name, cfg, sampling, registration)
+        self.references.append(asset)
+        self.frames[frame_index].reference_id = asset.id
+        if rebuild:
+            self.rebuild_reference(frame_index)
+        return asset
+
+    def detach_reference(self, frame_index: int) -> ReferenceAsset | None:
+        """Make registration metadata private to a frame that shared a source ID.
+
+        Duplicated frames may share the underlying screenshot bytes; retuning
+        one frame's calibration must not silently retune its siblings.
+        """
+        asset = self.reference_for_frame(frame_index)
+        if asset is None:
+            return None
+        if sum(f.reference_id == asset.id for f in self.frames) <= 1:
+            return asset
+        clone = asset.copy()
+        clone.id = uuid4().hex
+        self.references.append(clone)
+        self.frames[frame_index].reference_id = clone.id
+        return clone
+
+    def rebuild_reference(self, frame_index: int, layer_id: str | None = None) -> None:
+        """Reconstruct one cel, explicitly unlinking it from shared exposures.
+
+        Original screen-space source remains intact. Only the chosen frame and
+        layer receive new logical pixels. This is one caller-managed undo step.
+        """
+        asset = self.reference_for_frame(frame_index)
+        if asset is None:
+            raise ValueError('Frame has no embedded source reference.')
+        layer_id = layer_id or self.active_layer
+        if layer_id not in {k.id for k in self.layers}:
+            raise ValueError('Unknown reference target layer.')
+        self.unlink_cel(frame_index, layer_id)
+        self.replace_cel(asset.extract(), frame_index, layer_id)
+
 def project_save(doc: Document, filename: str | Path, *, backup: bool = True) -> None:
     """Write a validated atomic project and preserve the previous good version.
 
@@ -349,12 +406,14 @@ def project_save(doc: Document, filename: str | Path, *, backup: bool = True) ->
                 images.append((fi, layer.id, image))
         links.append(frame_links)
     data = {
-        'schema': 2, 'name': doc.name, 'width': doc.width, 'height': doc.height,
+        'schema': 3, 'name': doc.name, 'width': doc.width, 'height': doc.height,
         'active_frame': doc.active_frame, 'active_layer': doc.active_layer,
         'layers': [vars(x) for x in doc.layers],
-        'frames': [{'duration_ms': f.duration_ms, 'linked_to': links[i]}
+        'frames': [{'duration_ms': f.duration_ms, 'linked_to': links[i],
+                    'reference_id': f.reference_id}
                    for i, f in enumerate(doc.frames)],
         'palette': doc.palette, 'guides': doc.guides,
+        'references': [ref.info() for ref in doc.references],
     }
     fd, temporary = tempfile.mkstemp(prefix=f'.{target.stem}.', suffix='.mellowzip.tmp', dir=target.parent)
     os.close(fd)
@@ -367,6 +426,8 @@ def project_save(doc: Document, filename: str | Path, *, backup: bool = True) ->
                 buf = BytesIO()
                 image.save(buf, format='PNG')
                 z.writestr(f'cels/{fi:04d}/{layer_id}.png', buf.getvalue())
+            for ref in doc.references:
+                z.writestr(f'references/{ref.id}.png', ref.png)
         with tmp.open('r+b') as f:
             f.flush()
             os.fsync(f.fileno())
@@ -395,7 +456,7 @@ def project_load(filename: str | Path) -> Document:
     with ZipFile(filename, 'r') as z:
         data = json.loads(z.read('project.json'))
         schema = data.get('schema')
-        if schema not in (1, 2):
+        if schema not in (1, 2, 3):
             raise ValueError('Unrecognized Mellow Studio project format.')
         w, h = int(data['width']), int(data['height'])
         validate_size(w, h)
@@ -408,7 +469,7 @@ def project_load(filename: str | Path) -> Document:
             if not (16 <= duration <= 10000):
                 raise ValueError('Invalid frame duration.')
             cels = {}
-            links = info.get('linked_to', {}) if schema == 2 else {}
+            links = info.get('linked_to', {}) if schema >= 2 else {}
             for layer in layers:
                 if layer.id in links:
                     source_index = int(links[layer.id])
@@ -421,11 +482,30 @@ def project_load(filename: str | Path) -> Document:
                             if im.size != (w, h):
                                 raise ValueError('Cel size mismatch in project.')
                             cels[layer.id] = im.convert('RGBA')
-            frames.append(Frame(duration, cels))
+            frames.append(Frame(duration, cels, info.get('reference_id') if schema == 3 else None))
+        references = []
+        if schema == 3:
+            entries = data.get('references', [])
+            if not isinstance(entries, list) or len(entries) > 512:
+                raise ValueError('Invalid embedded reference list.')
+            for ref_info in entries:
+                rid = ref_info.get('id')
+                if not isinstance(rid, str) or len(rid) != 32 or any(c not in '0123456789abcdef' for c in rid):
+                    raise ValueError('Invalid reference ID.')
+                name = f'references/{rid}.png'
+                if z.getinfo(name).file_size > 48 * 1024 * 1024:
+                    raise ValueError('Source reference exceeds embedded size limit.')
+                references.append(ReferenceAsset.from_info(ref_info, z.read(name)))
+            ids = [x.id for x in references]
+            if len(set(ids)) != len(ids):
+                raise ValueError('Duplicate embedded reference IDs.')
+            for frame in frames:
+                if frame.reference_id is not None and frame.reference_id not in ids:
+                    raise ValueError('Frame references missing embedded source.')
         doc = Document(w, h, data.get('name', 'Untitled'), layers, frames,
             max(0, min(int(data.get('active_frame', 0)), len(frames)-1)),
             data.get('active_layer', layers[-1].id),
-            data.get('palette', []), data.get('guides', []))
+            data.get('palette', []), data.get('guides', []), references)
     return doc
 
 
@@ -619,15 +699,18 @@ def _compressed_history_snapshot(doc: Document) -> bytes:
                 seen[key] = len(buffers)
                 buffers.append(zlib.compress(image.tobytes(), level=1))
             aliases[layer.id] = seen[key]
-        frames.append({'duration_ms': frame.duration_ms, 'cels': aliases})
+        frames.append({'duration_ms': frame.duration_ms, 'cels': aliases,
+                       'reference_id': frame.reference_id})
     header = json.dumps({
         'width': doc.width, 'height': doc.height, 'name': doc.name,
         'layers': [vars(x) for x in doc.layers], 'frames': frames,
         'active_frame': doc.active_frame, 'active_layer': doc.active_layer,
         'palette': doc.palette, 'guides': doc.guides,
+        'references': [ref.info() for ref in doc.references],
     }, separators=(',', ':')).encode('utf-8')
     return b''.join([pack('<I', len(header)), header] +
-                    [pack('<I', len(buf)) + buf for buf in buffers])
+                    [pack('<I', len(buf)) + buf for buf in buffers] +
+                    [pack('<I', len(ref.png)) + ref.png for ref in doc.references])
 
 
 def _restore_history_snapshot(snapshot: bytes) -> Document:
@@ -643,12 +726,20 @@ def _restore_history_snapshot(snapshot: bytes) -> Document:
         position += size
         images.append(Image.frombytes('RGBA', (header['width'], header['height']), rgba))
     frames = [Frame(f['duration_ms'], {layer_id: images[alias]
-                                       for layer_id, alias in f['cels'].items()})
+                                       for layer_id, alias in f['cels'].items()},
+                    f.get('reference_id'))
               for f in header['frames']]
+    references = []
+    for info in header.get('references', []):
+        (size,) = unpack_from('<I', snapshot, position)
+        position += 4
+        png = snapshot[position:position+size]
+        position += size
+        references.append(ReferenceAsset.from_info(info, png))
     return Document(header['width'], header['height'], header['name'],
                     [Layer(**layer) for layer in header['layers']], frames,
                     header['active_frame'], header['active_layer'], header['palette'],
-                    header['guides'])
+                    header['guides'], references)
 
 
 class History:
@@ -708,9 +799,11 @@ class History:
 
 def documents_equal(a: Document, b: Document) -> bool:
     if (a.width, a.height, a.name, a.active_frame, a.active_layer, a.palette, a.guides,
-            [(vars(x)) for x in a.layers], [(x.duration_ms) for x in a.frames]) != \
+            [(vars(x)) for x in a.layers], [(x.duration_ms, x.reference_id) for x in a.frames],
+            a.references) != \
        (b.width, b.height, b.name, b.active_frame, b.active_layer, b.palette, b.guides,
-            [(vars(x)) for x in b.layers], [(x.duration_ms) for x in b.frames]):
+            [(vars(x)) for x in b.layers], [(x.duration_ms, x.reference_id) for x in b.frames],
+            b.references):
         return False
     if len(a.frames) != len(b.frames):
         return False
