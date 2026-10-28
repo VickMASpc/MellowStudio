@@ -1,68 +1,53 @@
 # Mellow Studio — sprint log and release gates
 
-**Version:** 0.2.0 source milestone  
-**Date:** 2026-10-28  
-**Design constraint:** native logical grid; measured screenshot pixel scaling must never become editable art resolution.
+**Updated:** 2026-10-28  
+**Current canonical baseline:** `main`, v0.2.1 implementation merged in [PR #2](https://github.com/VickMASpc/MellowStudio/pull/2).  
+**Next active sprint:** 0.2.2 reliability and interaction quality, [Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3).  
+**Roadmap:** [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md). A source implementation is not a release acceptance.
 
-## Sprint 0.1.1 — stability (included in 0.2.0)
+## Evidence conventions (mandatory)
 
-| Item | Evidence | Status |
+- `PLANNED`: scoped but no code. `IN PROGRESS`: partial implementation. `IMPLEMENTED`: code exists, validation not enough. `CI VERIFIED`: targeted automated suite passed. `MANUAL VERIFIED`: an actual Windows interaction has been executed and recorded. `ACCEPTED`: explicit exit gate passed with reproducible evidence. `BLOCKED`: defect or dependency prevents gate.
+- Each sprint change records **code, tests, failures, measurable results, limitations and follow-ups**. A green CI build doesn't imply usability or EXE verification. Track Windows runtime separately.
+- Every code PR must change this file **and** `DEVELOPMENT_PLAN.md`; documentation-only PRs are exempt from paired updates.
+
+## Historical baseline
+
+| Sprint | Implemented | Verification and outstanding limitations | Status |
+|---|---|---|---|
+| 0.1.0 / 0.1.1 | Qt desktop editor, logical raster canvas, layers, tools, basic timeline, manual measurement and Mellow calibration | Initial 14 headless tests; later Windows GUI smoke added; 60-second drawing and long-run gates were not recorded | IMPLEMENTED; partial CI VERIFIED |
+| 0.2.0 | Frame multi-selection, linked holds, frame block operations, v2 archive with v1 support, auto grid suggestions, measured sequence importer, CLI exports | 27 headless regression tests at milestone, Mellow 41×55 and 268×360 fixture; coarse shared calibration still fails different-crop alignment | CI VERIFIED for specified tests |
+| 0.2.1 | Non-destructive floating moves/paste, explicit commit/cancel, timeline drag reorder, compressed bounded snapshot undo; default 128 actions/128 MiB | [PR #2 merged](https://github.com/VickMASpc/MellowStudio/pull/2); latest main [4/4 CI jobs passed](https://github.com/VickMASpc/MellowStudio/actions/runs/40690278158) on Windows and Linux. Original 35 headless tests plus Windows Qt smoke. Windows application run/testing reported working by user; full drag usability and long-session gate not yet recorded | CI VERIFIED; MANUAL VERIFIED for launch only; not fully ACCEPTED |
+
+**0.2.1 distinctions:** compressed *document* snapshots are not tile/run delta undo. Qt smoke tests do not prove subjective drag responsiveness. Float preview remains separate until commit, but project-wide recovery and save-failure hardening are pending.
+
+## Sprint 0.2.2 — next implementation sprint ([Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3))
+
+**Goal:** make daily drawing and animation trustworthy before 0.3A/B feature expansion. **State:** PLANNED (issue created, implementation not started as of this log entry).
+
+| Deliverable | Evidence required | Status |
 |---|---|---|
-| Preserve the Mellow 41×55 fixture and 1-pixel eye highlights | Original regression tests | PASS |
-| Warn on abandoning a new/imported unsaved project | Code path audited and corrected | Implemented; GUI smoke pending |
-| Reject invalid linked references and broken frame metadata in project files | Schema validation + tests | PASS |
-| Preserve full linked state across undo/redo, cel flips and resize | `test_sprint02.py` | PASS |
-| Validate GUI tool interaction on Windows | Windows machine with PySide6 required | OPEN |
+| Per-project recovery identity, retention, isolation and restore UI | Two-project autosave/restore and interruption tests; recovery paths don't collide | PLANNED |
+| Durable save and error handling | Failed Save As preserves existing path/dirty state; corruption/ZIP checks; old valid bytes survive partial failure | PLANNED |
+| Explicit mutation transactions | One undo unit per stroke/frame operation; linked exposures don't accidentally fork; no-op edit doesn't mark dirty | PLANNED |
+| Composite QImage/onion caches, lazy invalidated timeline thumbnails | Deterministic invalidation tests and measured frame-switch/paint latency | PLANNED |
+| High-DPI and keyboard-focus Qt tests | Input focus, list selections, painting, shortcuts and save/open interactions covered | PLANNED |
+| Workload & memory benchmarks | 41×55; 128×128 with 8 layers/24 frames; 256×256 profile; 5700U when available | NOT MEASURED |
+| Preserve flagship regression | Both one-cell eye highlights, fractional grid, linked-cel save/restore & 12-frame import regressions | PLANNED |
 
-## Sprint 0.2.0 — animation speed + measured reference suggestions
+**Exit gate:** 20 duplicate/edit/undo cycles, a documented 60-second continuous Windows drawing session, save failure and two-project recovery tests without silent loss, green Windows/Linux CI, measured performance. No claims of acceptance before evidence.
 
-| Deliverable | Built? | Validation |
-|---|---|---|
-| Ctrl/Shift multi-select timeline | Yes | Qt code compiles; live Qt unverified |
-| Independent multi-frame duplicate | Yes | Engine automated tests |
-| Linked multi-frame duplicate and exposure holds | Yes | Engine automated tests |
-| Per-layer Link/Unlink selected cels | Yes | Engine automated tests; GUI smoke pending |
-| Frame copy/paste, delete, stepwise move, batch timing | Yes | Engine automated tests |
-| Native project schema v2 link deduplication, v1 read | Yes | Archive roundtrip tests |
-| Detect approximate pixel pitch and native cell count | Yes | Mellow 268×360 → 41×55 fixture |
-| Candidate confidence and manual review | Yes | Algorithm and UI code; live Qt unverified |
-| Right-drag overlay alignment | Yes | Code implemented; live Qt unverified |
-| Nearest-real-color sampling for measured cells | Yes | Headless code |
-| Qt-free batch PNG exporter | Yes | Automated CLI test |
-| Delta-compressed history | No | Deferred |
-| Timeline drag-and-drop ordering | No | Stepwise move currently |
-| Floating selection transform | No | Deferred |
+## Future sprint order (not started)
 
-## High-priority next sprint: 0.2.1 — actual editor reliability and editing ergonomics
+1. **0.2.3:** source-preserving reference registration, per-frame offsets/crops and landmark corrections, 12 mixed-offset references, preview/overlay comparisons. This is the product differentiator and precedes generic professional-tool expansion.
+2. **0.3A:** palette/color, custom precision brushes, dither/pixel-perfect lines, selection masks/transforms, layer groups and configurable shortcuts.
+3. **0.3B:** animation tags/holds/range edits, configurable onion and A/B pose preview, optimized exposure timeline and production atlas export.
+4. **0.4:** indexed modes, project exchange, workspaces, performance scaling, export compatibility.
+5. **0.5+:** tilemaps, asset library, advanced transforms/audio/optional tweening; **1.0:** tested packaging, recovery and compatibility gate.
 
-1. **Windows interactive smoke pass:** launch, zoom, draw, resize, file dialogs, multi-select, undo, paint linked exposures, export. Capture failures in tests immediately. No EXE readiness claim before this.
-2. **Selection architecture:** floating selection on paste, commit/cancel, move preview and precise keyboard nudging without destructive repeated raster operations.
-3. **Undo memory:** delta or compressed cel history; benchmark small sprite and multi-frame layered documents. Target 100+ interactive operations without a visible freeze.
-4. **Timeline:** real drag reorder, scrolling/performance of thumbnails, frame index behavior with selections.
-5. **Reference grid:** candidate choice UI validation on Mellow and screenshots with border padding/nonuniform scaling. Store manual adjustments in import profiles.
-6. **Drawing:** pixel-perfect brush corner option, custom dither, palette controls and no smoothing anywhere.
+## Sprint change record — 2026-10-28
 
-## Native Windows smoke checklist
-
-Run `start_windows.bat`, then:
-
-- Open bundled Mellow. Confirm **41 × 55** logical pixels and eye landmarks `(16,19)`, `(24,19)`.
-- Draw on frame 1. Duplicate independent with `Ctrl+D`; change frame 2 and verify frame 1 does **not** change.
-- Duplicate linked with `Ctrl+Shift+D`; paint frame 3 and verify its linked frame changes. Select frame 3 and click Unlink; repaint, verify independent.
-- Shift-select frames 1–3, press `Ctrl+Alt+C`, then `Ctrl+Alt+V` and verify the block, timings and link independence across blocks.
-- Use timeline arrow buttons to move selected block. Undo and redo. Close and reopen saved v2 project. All links must be preserved.
-- Open measured screenshot import. Click `Suggest native grid size + pitch`; check 41×55 appears for Mellow-style 268×360 screenshot. Use right-drag to align grid and inspect one-pixel highlights.
-- Use `python -m mellowstudio.cli validate examples\mellow_hold_blink_v02.mellowzip` and batch PNG export.
-
-## Release acceptance
-
-Source distribution is intentionally distinct from a **Windows-verified executable**. The engine test suite passes under this environment. PySide6 is not available here, so Qt UI behavior and EXE packaging have not been runtime-verified. Do not claim otherwise. Next release gate is a real Windows/Qt smoke run.
-
-## Sprint 0.2.1 — feature branch work (unreleased)
-
-- Floating selection model keeps preview detached from actual cel pixels until Ctrl+Enter or another operation commits. Esc cancels; linked exposure aliases propagate on commit only.
-- Reorder across timeline insertion boundaries supports multi-select/discontiguous blocks. Frame identity, duration and link aliases are retained. Engine tests cover reordering and history restoration.
-- Undo/redo now uses compressed unique RGBA image buffers, respecting a 128 MiB limit and 128 actions; still snapshot-based, not region-delta history.
-- Autosave captures floating previews into a separate recovery snapshot, and unsaved prompts recognize pending floats.
-- Expanded test cases: `tests/test_sprint021.py`, and a Qt interaction test in `tests/test_qt_smoke.py`.
-- **Release gate**: Windows CI must run the Qt interaction smoke, then real Windows interactive dragging should be checked before marking the feature stable.
+- **Decision:** reviewed original roadmap against merged 0.2.1; retained professional feature inventory but split overfull 0.3 into 0.3A/0.3B; moved reference/provenance work to 0.2.3 and reliability to 0.2.2. Why: data integrity and distinctively fast measured animation are more valuable than accumulating unverified buttons.
+- **Documentation process:** source repo is canonical; each implementation PR must update roadmap and sprint log, with a dedicated CI guard. Versioned ZIP per sprint retired; releases are tagged commits when accepted.
+- **Outstanding risks:** current shared autosave slot, save-as failure semantics, unregistered same-size reference crops, eager recompositing/thumbnails and snapshot-only history. None marked fixed by this documentation-only sprint.
+- **CI status:** documentation-governance PR must pass its own CI before merge; append the PR/commit and CI evidence in a future implementation sprint. No 0.2.2 engine improvements are claimed here.

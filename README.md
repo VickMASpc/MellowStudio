@@ -2,7 +2,7 @@
 
 > **v0.2.0 source milestone (2026-10-28)** — animation timeline multi-select, linked exposures/holds, frame-block copy/paste and stepwise reordering, automatic pixel-grid size suggestions, manual right-drag alignment, version-2 project format and a headless batch exporter. See [`docs/SPRINT_LOG.md`](docs/SPRINT_LOG.md) for what is verified versus still pending.
 
-### Sprint 0.2.1 — development preview
+### Sprint 0.2.1 — merged baseline (PR #2)
 
 - **Float, then commit:** drag an existing marquee selection using the Move tool (`V`), or `Ctrl+V` to stage pasted pixels as a floating fragment. The cel is unchanged during movement.
 - Position precisely with arrow keys (`Shift` = 10 logical cells). `Ctrl+Enter` commits one undoable action. `Esc` cancels the float and restores the untouched cel. Switching to a painting tool or another frame commits the pending pixels.
@@ -100,9 +100,9 @@ To build a portable Windows application folder containing `MellowStudio.exe`, ru
 
 **Original baseline:** 14 headless tests passed for exact Mellow cell data, screenshot-to-grid reconstruction, native-resolution sampling, frame independence, layer compositing, alpha/shape/fill/mirror/symmetry, selection movement, multi-frame project round-trip, and undo/redo. Python bytecode compilation passed.
 
-**What was not verified here:** the actual Qt desktop window, interactive mouse/keyboard integration, PyInstaller EXE packaging, or rendering on Windows. PySide6 could not be downloaded into the build environment (network DNS blocked); install it on Windows via the launch script. This is an **early usable source build**, not a claim that every professional feature is already finished.
+**Current validation:** Windows and Linux CI passed the tests for the merged 0.2.1 branch, including targeted Windows Qt smoke tests. The user reported a working Windows launch/test. This does **not** verify all interactive workflows, a long-running session, reference registration, or a packaged EXE. Those remain explicit roadmap gates.
 
-The v0.1 history engine snapshots full documents (32 entries). It suits small sprite work; substantial documents require v0.2's compressed per-cel/delta undo and render caches. Do not assume unlimited 2048×2048 multi-layer/multi-frame work will be fast. GIF palette/transparency needs a dedicated compatibility pass; PNG spritesheets are the lossless output.
+The v0.2.1 history engine uses deduplicated compressed whole-document snapshots (128 actions / 128 MiB defaults), **not delta undo**. Compositor/thumbnails still require targeted caching. Large-project performance and GIF transparency need testing; lossless PNG sheets and `.mellowzip` remain authoritative.
 
 Full professional feature matrix, architecture, workflow goals, and fast development cycle: **`docs/DEVELOPMENT_PLAN.md`**.
 
@@ -112,4 +112,4 @@ This repository is the **single source of truth** from v0.2.0 forward. Do not un
 
 On Windows, `.\dev.ps1 run` launches the editor, `.\dev.ps1 test` runs the tests, `.\dev.ps1 build` makes an EXE and `.\dev.ps1 cli ...` accesses headless batch commands. All commands reuse **one root `.venv`**. Direct launch `start_windows.bat` works too. To force-recreate that one environment, delete `.venv` once and run setup again.
 
-CI runs the Python test suite on Ubuntu and Windows, including Qt smoke tests where supported, and validates the linked-cel example. The first successful Windows run is still needed before calling this GUI release verified.
+CI runs Python engine tests on Ubuntu and GUI smoke tests on Windows; the merged 0.2.1 baseline passed. **For every code PR, update both `docs/DEVELOPMENT_PLAN.md` and `docs/SPRINT_LOG.md`** or the new sprint-documentation CI gate will fail. See [`docs/REPOSITORY_WORKFLOW.md`](docs/REPOSITORY_WORKFLOW.md). Next milestone: [Sprint 0.2.2 / Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3).
