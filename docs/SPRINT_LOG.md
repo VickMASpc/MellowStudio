@@ -92,3 +92,16 @@
 **Evidence:** [PR #8](https://github.com/VickMASpc/MellowStudio/pull/8) merged as `b15d900c`; all five PR validation jobs passed, as did the four Linux/Windows post-merge CI jobs. [Branch janitor run 40705760359](https://github.com/VickMASpc/MellowStudio/actions/runs/40705760359) succeeded and logged **five successful deletions**: the four original stale sprint branches and the cleanup PR's temporary branch. GitHub's branches API was checked afterward and returned **only `main`**. Offline Node decision-rule test and Windows PowerShell syntax check passed; physical Windows sync execution and user-local Git state remain unverified.
 
 **Remaining:** user-local authentication, DNS, proxy, uncommitted modifications or divergent history cannot be diagnosed via repository-side GitHub data alone. GitHub workflow permissions may prevent automatic deletion; report that explicitly if it occurs.
+
+
+## Sprint 0.2.4 — Artist-first creative workspace (2026-10-28)
+
+**Corrected product goal:** Professional means swift, enjoyable creative production in a polished and comprehensive native workspace. Earlier work emphasized archive/calibration/engineering depth at the expense of the actual artist experience.
+
+**Implemented in feature branch (Issue #9):** Native Welcome dialog with new/open/recent/sample/recovery; approachable New Canvas presets; local vector icon tool rail; contextual brush size, dither mix, fill, symmetry and foreground/secondary colors; paint/secondary swap (X) and selected palette highlight; compact timeline with play/duplicate/blank, duration, More and right-click frame actions; F11 focus canvas; one Ctrl+E export dialog for PNG, GIF, spritesheet+JSON and numbered PNGs+JSON; calmer Qt styling and project/save/export bar. Existing pixel-exact rendering, undo, recovery and reference registration remain available.
+
+**Local evidence:** 56 headless tests passed, including recent-project validation and lossless sheet timing export. Module compilation passed. New Windows Qt smoke exercises Welcome, presets, contextual tool visibility, palette swap, timeline, focus and quick export. **Windows CI and real user visual acceptance are not yet recorded.**
+
+**Acceptance still open:** physically review visual hierarchy and text/icon clarity on the user's Windows system, verify real mouse/keyboard interactions, check a new-to-export animation workflow and task time, ensure accessibility/HiDPI and preserve native-pixel Mellow regression. This is an implemented experience slice, not a completed Apple-level product.
+
+**Next:** address Windows test failures, record actual Qt CI evidence, then use practical artist feedback to shape 0.2.5 palette/paint/animation refinements. Issues #3 (reliability) and #7 (registration) remain tracked, not abandoned.
