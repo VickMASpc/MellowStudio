@@ -1,4 +1,20 @@
-# Mellow Studio — v0.2.3 development build
+# Mellow Studio — Artist-first v0.2.4 preview
+
+**Make something move.** A professional studio should feel fast, coherent and pleasant, not like a technical settings console. A new Welcome screen, contextual drawing controls, approachable timeline and one export dialog now put everyday creative work first.
+
+**Start on Windows:** From your existing clone use git switch main, git pull, then start_windows.bat. Your root .venv is reused. The Welcome screen offers New Canvas, Open, recently opened projects, the Mellow sample and available recovery. Reopen it anytime with Ctrl+Shift+H.
+
+**Paint:** Tool-only vector icon rail (B pencil, D dither, E erase, F fill, I sample). Size, dither mix, symmetry and shape/fill switches appear contextually. X swaps foreground/secondary, and palette swatches make the current paint color visible.
+
+**Animate:** The timeline keeps Play, Duplicate, Blank, current frame and duration visible. More or right-click exposes holds, linking/unlinking, frame blocks and reordering. Ctrl+D duplicates; Space plays.
+
+**Focus and export:** F11 hides/restores dock panels to free painting room. Ctrl+E opens a single export dialog for PNG, GIF, sprite sheet+timing JSON or numbered PNGs+timing JSON. Reference Lab remains available via Ctrl+Alt+R.
+
+**Validation:** 56 headless tests pass locally; Windows Qt smoke and real Windows artist acceptance remain separate. See [Development Plan](docs/DEVELOPMENT_PLAN.md) and [Sprint Log](docs/SPRINT_LOG.md).
+
+---
+
+## Previous milestones
 
 ## Sprint 0.2.3 — Reference Lab + studio UI refresh
 
