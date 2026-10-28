@@ -64,4 +64,6 @@ def test_qt_floating_commit_cancel_and_frame_reorder(tmp_path, monkeypatch):
     window.reorder_selected_frames(3)
     assert window.doc.active_frame == 1  # active frame object preserved
     assert len(window.doc.frames)==3
+    window.file_path=tmp_path/'sprint021-smoke.mellowzip'
+    assert window.save_project()
     window.close()
