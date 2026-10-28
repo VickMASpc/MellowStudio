@@ -146,7 +146,7 @@ def test_qt_reference_workbench_and_refresh(tmp_path,monkeypatch):
     window.set_document(doc)
     window.show();app.processEvents()
     assert window.reference_dock.objectName()=='ReferenceDock'
-    assert window.mode_label.text().startswith('  PIXEL WORKSPACE')
+    assert '15×10' in window.project_label.text()
     assert 'shift.png' in window.source_info.text()
     original=window.doc.copy()
     lab=ReferenceWorkbench(window.doc,window)
