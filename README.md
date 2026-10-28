@@ -1,4 +1,32 @@
-# Mellow Studio — v0.2.2 development build
+# Mellow Studio — v0.2.3 development build
+
+## Sprint 0.2.3 — Reference Lab + studio UI refresh
+
+**Flagship workflow:** import a measured screenshot sequence, inspect detected frame offsets,
+correct the fractional sampling origin per frame and keep the complete original source pixels
+embedded in the native project. A different pose is **not** automatically a different crop.
+
+- **Reference Lab (`Ctrl+Alt+R`)**: source list, offset suggestions (diagnostic, not auto-applied),
+  red/cyan overlay comparison, precise X/Y origin controls, exact logical-pixel preview,
+  per-frame reconstruct, and explicit Apply/Cancel. Reopen and edit these settings after saving.
+- **Native archive schema 3**: `.mellowzip` retains source PNG pixels, filenames, original sizes,
+  registration notes, sampling mode, and fractional calibration per frame. Old v1/v2 projects still open.
+  Original pixel data is retained; original JPEG file bytes/metadata are **not** retained.
+- **12-frame fixture:** File → Open `examples/reference_lab_12frame_demo.mellowzip`, then
+  `Ctrl+Alt+R`. All 12 268×360 sources have intentionally different offsets, but reconstruct
+  to the same **41×55** logical Mellow. Try changing a calibration, reconstruct, cancel or undo,
+  save/reopen and inspect the retained source.
+- **More intentional native UI:** reorganized studio command bar, purpose-built Reference dock,
+  clearer highlighted actions, better dark panel contrast and a dedicated Reference Lab workspace.
+- **Regression improvements:** fixed exact-center sampling at half-pixel boundaries; source
+  reference identities survive frame reorders, linked exposures, history, and saves.
+- **Command line:** `python -m mellowstudio.cli info examples/reference_lab_12frame_demo.mellowzip`
+  includes the complete embedded source and calibration inventory.
+
+**Limitations:** Translation suggestions are heuristic and require review. Different-size sources
+are flagged for manual alignment; scale changes, perspective and landmark-assisted registration
+are still planned, not solved. The overlay is red/cyan difference, not a full inspection heatmap.
+Manual Windows acceptance and real 5700U performance remain separate gates.
 
 ## Sprint 0.2.2 — real additions
 

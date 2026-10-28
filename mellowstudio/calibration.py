@@ -53,7 +53,7 @@ class GridCalibration:
                 # Sample only the interior 50%; borders can be antialiased.
                 cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
                 if mode == 'center':
-                    ix, iy = round(cx - .5), round(cy - .5)
+                    ix, iy = math.floor(cx), math.floor(cy)
                     if 0 <= ix < w and 0 <= iy < h:
                         out[y, x] = src[iy, ix]
                 elif mode in ('median','dominant'):

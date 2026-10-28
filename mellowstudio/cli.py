@@ -26,6 +26,10 @@ def project_info(doc: Document) -> dict:
             layer.name: _linked_groups(doc, layer.id) for layer in doc.layers
         },
         'guides': doc.guides,
+        'embedded_references': [{'frame': i + 1, 'name': ref.name,
+            'source_size': list(ref.source_size), 'calibration': ref.calibration,
+            'registration': ref.registration} for i, f in enumerate(doc.frames)
+            if (ref := doc.reference_for_frame(i)) is not None],
     }
 
 
