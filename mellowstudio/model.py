@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from io import BytesIO
+import os
+import shutil
+import tempfile
 import json
 import zlib
 from struct import pack, unpack_from
@@ -321,8 +324,14 @@ class Document:
         self.width, self.height = width, height
 
 
-def project_save(doc: Document, filename: str | Path) -> None:
-    """Lossless v2 archive, saving linked exposures once and retaining v1 support."""
+def project_save(doc: Document, filename: str | Path, *, backup: bool = True) -> None:
+    """Write a validated atomic project and preserve the previous good version.
+
+    Each save has a unique temporary file in the destination filesystem. Failure
+    before os.replace leaves the destination intact. An existing project is
+    copied to .bak, atomically, *before* the new project replaces it. Recovery
+    snapshots can disable backup because their names are already unique.
+    """
     target = Path(filename)
     target.parent.mkdir(parents=True, exist_ok=True)
     seen: dict[tuple[str, int], int] = {}
@@ -347,7 +356,10 @@ def project_save(doc: Document, filename: str | Path) -> None:
                    for i, f in enumerate(doc.frames)],
         'palette': doc.palette, 'guides': doc.guides,
     }
-    tmp = target.with_name(target.name + '.tmp')
+    fd, temporary = tempfile.mkstemp(prefix=f'.{target.stem}.', suffix='.mellowzip.tmp', dir=target.parent)
+    os.close(fd)
+    tmp = Path(temporary)
+    bak_tmp = None
     try:
         with ZipFile(tmp, 'w', ZIP_DEFLATED) as z:
             z.writestr('project.json', json.dumps(data, indent=2))
@@ -355,10 +367,28 @@ def project_save(doc: Document, filename: str | Path) -> None:
                 buf = BytesIO()
                 image.save(buf, format='PNG')
                 z.writestr(f'cels/{fi:04d}/{layer_id}.png', buf.getvalue())
-        tmp.replace(target)
+        with tmp.open('r+b') as f:
+            f.flush()
+            os.fsync(f.fileno())
+        with ZipFile(tmp, 'r') as z:
+            if z.testzip() is not None:
+                raise ValueError('Project archive failed integrity verification.')
+        # Validate semantic consistency, not only ZIP CRC, before replacing.
+        project_load(tmp)
+        if backup and target.exists():
+            handle, backup_name = tempfile.mkstemp(prefix=f'.{target.stem}.backup.', dir=target.parent)
+            bak_tmp = Path(backup_name)
+            with os.fdopen(handle, 'wb') as output, target.open('rb') as source:
+                shutil.copyfileobj(source, output)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(bak_tmp, target.with_name(target.name + '.bak'))
+            bak_tmp = None
+        os.replace(tmp, target)
     finally:
-        if tmp.exists():
-            tmp.unlink()
+        tmp.unlink(missing_ok=True)
+        if bak_tmp is not None:
+            bak_tmp.unlink(missing_ok=True)
 
 
 def project_load(filename: str | Path) -> Document:
@@ -429,6 +459,50 @@ def draw_stroke(img: Image.Image, points: list[tuple[int, int]], color: RGBA,
                     y = round(a[1] + (b[1] - a[1]) * step / steps)
                     d.rectangle((x-left, y-left, x+right, y+right), fill=color)
 
+
+
+# Bayer 4×4 ordered dither stays locked to sprite coordinates across strokes.
+BAYER_4 = ((0, 8, 2, 10), (12, 4, 14, 6),
+           (3, 11, 1, 9), (15, 7, 13, 5))
+
+
+def draw_dither_stroke(img: Image.Image, points: list[tuple[int, int]],
+                       foreground: RGBA, background: RGBA,
+                       size: int = 1, level: int = 8,
+                       symmetry_x: bool = False, symmetry_y: bool = False) -> None:
+    """Paint a deterministic 2-color ordered dither in logical sprite pixels.
+
+    Position-dependent Bayer thresholds mean separated strokes join seamlessly,
+    and no filtering/blurring/alpha interpolation ever changes cell identity.
+    Level 0 is all background; level 16 is all foreground.
+    """
+    if not 0 <= level <= 16:
+        raise ValueError('Dither level must be between 0 and 16.')
+    if size < 1:
+        raise ValueError('Brush size must be positive.')
+    if not points:
+        return
+    w, h = img.size
+    paths = [points]
+    if symmetry_x:
+        paths.append([(w - 1 - x, y) for x, y in points])
+    if symmetry_y:
+        paths.append([(x, h - 1 - y) for x, y in points])
+    if symmetry_x and symmetry_y:
+        paths.append([(w - 1 - x, h - 1 - y) for x, y in points])
+    left, right = (size - 1) // 2, size // 2
+    for path in paths:
+        for a, b in zip(path, path[1:] + path[-1:]):
+            steps = max(abs(b[0] - a[0]), abs(b[1] - a[1]))
+            for step in range(steps + 1):
+                x = round(a[0] + (b[0] - a[0]) * step / max(1, steps))
+                y = round(a[1] + (b[1] - a[1]) * step / max(1, steps))
+                for py in range(y - left, y + right + 1):
+                    if not 0 <= py < h:
+                        continue
+                    for px in range(x - left, x + right + 1):
+                        if 0 <= px < w:
+                            img.putpixel((px, py), foreground if BAYER_4[py & 3][px & 3] < level else background)
 
 def draw_shape(img: Image.Image, kind: str, start: tuple[int, int], end: tuple[int, int],
                color: RGBA, filled: bool = False) -> None:
