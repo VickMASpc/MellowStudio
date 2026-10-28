@@ -56,6 +56,8 @@
 
 **Risk:** An offset suggestion cannot distinguish deliberate sprite motion from a screen crop; confidence is heuristic and review is mandatory. Pixels literally clipped outside a screenshot cannot be restored. The original JPEG bitstream/EXIF is not retained, only original decoded pixels converted losslessly to embedded PNG.
 
+**CI outcome (PR #6, run 40700781027):** Documentation gate passed; Ubuntu Python 3.11 and 3.13 engine tests passed; Windows Python 3.11 and 3.13 each completed **58 passed** including new Qt Reference Lab interaction smoke. All 5 jobs passed. This is automated Qt offscreen coverage, not physical Windows usability certification.
+
 **Next:** after CI and physical Windows use, focus on variable-scale alignment and landmark registration, then 0.3A drawing fundamentals. Keep 0.2.2 manual stability/performance gates tracked on Issue #3 rather than falsely declaring them complete.
 
 ## Remaining sprint order / forward gates
