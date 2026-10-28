@@ -1,11 +1,10 @@
 # Repository development workflow
 
-- **main**: integrated, tested source; do not check in sprint archives.
-- **feature branches**: one focused change with tests; pull requests are the review/merge mechanism.
-- **One `.venv`**: stored at repo root, ignored by Git; the Windows launcher and scripts all point to that exact path. Reuse after `git pull`.
-- **Dependency ownership**: `pyproject.toml` is the canonical dependency declaration. `requirements*.txt` are compatibility shims, not separate dependency sets.
-- **CI**: two OSes × two supported Python versions, headless Qt smoke when possible, CLI validation.
-- **Release**: tag a tested commit; GitHub Actions can later build and attach the Windows artifact. Do not commit an EXE or ZIP snapshots.
-- **Performance**: next sprint 0.2.1 prioritizes floating selection, more memory-efficient undo, and timeline drag reordering.
-- **Calibration correctness**: preserve measured native grid conversion, fractional pitch, manual origin and the 41x55 Mellow regression.
-- **Release gate**: engine tests green AND real Qt smoke test green on Windows AND manual import/paint/save/open/export validation.
+- **`main`** is the canonical tested source. Feature branches and PRs carry implementation, regression tests, roadmap and sprint-log changes. Releases are tagged tested commits; no per-sprint extracted environments or checked-in ZIPs.
+- **One `.venv`** in repo root, ignored by Git and reused by `start_windows.bat`, `dev.ps1`, tests and builds.
+- **Dependencies** are declared in `pyproject.toml`; requirements files are compatibility shims.
+- **Every implementation PR updates BOTH documents:** `docs/DEVELOPMENT_PLAN.md` (scope, architecture, acceptance, risks) and `docs/SPRINT_LOG.md` (what changed, tests, evidence, limitations, next tasks). The CI `Sprint documentation gate` checks paired updates for editor, tests, scripts, workflows and packaging changes. Docs-only changes do not require both.
+- **Don't overstate validation:** implemented, CI verified, manually verified, and accepted have different meanings. Windows Qt smoke tests and headless tests are mandatory; manual mouse/drag, lengthy sessions and Windows EXE remain explicit gates.
+- **CI:** Linux headless and Windows GUI/engine tests on Python 3.11 and 3.13; separate documentation gate on PRs. Set GitHub branch protection to **require the docs gate** (and matrix tests) for an enforceable merge policy; without protection, checks can be bypassed.
+- **Per sprint:** issue with acceptance → focused code+tests → reference Mellow fixture → measured performance/error evidence → roadmap+log → PR+CI → manual Windows review when relevant → merge/tag when accepted. When results fail, record the failure and keep the issue open.
+- **Next:** [Sprint 0.2.2 / Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3) recovery and transaction safety, compositor performance, input/Qt regression, then 0.2.3 advanced reference registration. No generic 0.3 feature expansion before those exit gates.
