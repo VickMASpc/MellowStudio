@@ -98,8 +98,7 @@ def test_qt_dither_composite_cache_and_recovery(tmp_path, monkeypatch):
     assert len(window.recovery.entries()) == 1
     window.undo()
     assert window.doc.cel.getpixel((2, 2)) == (0, 0, 0, 0)
-    window.file_path = tmp_path/'dither-gui.mellowzip'
-    assert window.save_project()
+    assert window._save_to_path(tmp_path/'dither-gui.mellowzip')
     assert len(window.recovery.entries()) == 0
     window.close()
 
