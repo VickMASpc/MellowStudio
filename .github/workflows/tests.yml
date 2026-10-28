@@ -25,7 +25,11 @@ jobs:
         run: python -m pip install -e ".[test]"
       - name: Compile all modules
         run: python -m compileall -q mellowstudio
-      - name: Run engine and GUI smoke tests
+      - name: Run headless engine tests (Linux)
+        if: runner.os == 'Linux'
+        run: python -m pytest -q --ignore=tests/test_qt_smoke.py
+      - name: Run engine and Qt GUI smoke tests (Windows)
+        if: runner.os == 'Windows'
         run: python -m pytest -q
       - name: Validate linked hold sample
         run: python -m mellowstudio.cli validate examples/mellow_hold_blink_v02.mellowzip
