@@ -1,7 +1,7 @@
 # Mellow Studio — sprint log and release gates
 
 **Updated:** 2026-10-28  
-**Current merged baseline:** `main`, v0.2.3 Reference Lab merged in [PR #6](https://github.com/VickMASpc/MellowStudio/pull/6), passing Windows/Linux CI. Physical Windows acceptance gates remain open.  
+**Current merged baseline:** 0.2.4 artist-workspace implementation (PR #10), Windows/Linux CI verified; physical Windows UX acceptance remains open.  
 **Active work:** completion of flagship reference registration in [Issue #7](https://github.com/VickMASpc/MellowStudio/issues/7) and remaining recovery/performance gates in [Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3). **Status: implementation, not a fully accepted physical-Windows release.**  
 **Roadmap:** [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md). A source implementation is not a release acceptance.
 
@@ -100,7 +100,7 @@
 
 **Implemented in feature branch (Issue #9):** Native Welcome dialog with new/open/recent/sample/recovery; approachable New Canvas presets; local vector icon tool rail; contextual brush size, dither mix, fill, symmetry and foreground/secondary colors; paint/secondary swap (X) and selected palette highlight; compact timeline with play/duplicate/blank, duration, More and right-click frame actions; F11 focus canvas; one Ctrl+E export dialog for PNG, GIF, spritesheet+JSON and numbered PNGs+JSON; calmer Qt styling and project/save/export bar. Existing pixel-exact rendering, undo, recovery and reference registration remain available.
 
-**Local evidence:** 56 headless tests passed, including recent-project validation and lossless sheet timing export. Module compilation passed. New Windows Qt smoke exercises Welcome, presets, contextual tool visibility, palette swap, timeline, focus and quick export. **Windows CI and real user visual acceptance are not yet recorded.**
+**Local evidence:** 56 headless tests passed, including recent-project validation and lossless sheet timing export. Module compilation passed. New Windows Qt smoke exercises Welcome, presets, contextual tool visibility, palette swap, timeline, focus and quick export. **CI verified:** [PR #10 Windows/Linux matrix, run 40712096133](https://github.com/VickMASpc/MellowStudio/actions/runs/40712096133) passed all five jobs (documentation gate + Linux 3.11/3.13 + Windows 3.11/3.13). Each Windows job ran **62 passing tests**, including native Qt interactions. Initial Windows run exposed two regressions (a legacy header assertion and toolbar widget visibility), both fixed before the successful run. **Real user Windows visual acceptance remains open.**
 
 **Acceptance still open:** physically review visual hierarchy and text/icon clarity on the user's Windows system, verify real mouse/keyboard interactions, check a new-to-export animation workflow and task time, ensure accessibility/HiDPI and preserve native-pixel Mellow regression. This is an implemented experience slice, not a completed Apple-level product.
 
