@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 from PIL import Image, ImageOps
-from PySide6.QtCore import Qt, QTimer, QSettings, QByteArray, QSize, QStandardPaths
+from PySide6.QtCore import Qt, QTimer, QSettings, QByteArray, QSize, QStandardPaths, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPainter, QPixmap, QImage
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QScrollArea, QDockWidget, QVBoxLayout,
@@ -17,13 +17,13 @@ from PySide6.QtWidgets import (
 )
 
 from .model import (Document, History, project_load, project_save, blank,
-                    flip_cel, draw_stroke)
+                    flip_cel, draw_stroke, FloatingSelection)
 from .samples import mellow_document
 from .canvas import PixelCanvas, qimage_from_pil, pil_from_qimage
 from .importer import ImportDialog
 
 APP_TITLE = 'Mellow Studio'
-VERSION = '0.2.0'
+VERSION = '0.2.1-dev'
 
 
 class Swatch(QPushButton):
@@ -50,6 +50,35 @@ def pixmap_thumb(image: Image.Image, size: int = 75) -> QPixmap:
     q = QPixmap.fromImage(qimage_from_pil(image))
     return q.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.FastTransformation)
+
+
+
+class FrameTimeline(QListWidget):
+    """Horizontal timeline with model-owned, multi-selection drag/drop ordering."""
+    frameDropRequested = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+
+    def dropEvent(self, event):
+        if event.source() is not self:
+            event.ignore()
+            return
+        pos = event.position().toPoint()
+        item = self.itemAt(pos)
+        if item is None:
+            insertion = 0 if pos.x() < 0 else self.count()
+        else:
+            insertion = self.row(item)
+            if pos.x() > self.visualItemRect(item).center().x():
+                insertion += 1
+        self.frameDropRequested.emit(insertion)
+        event.acceptProposedAction()
 
 
 class NewDocumentDialog(QDialog):
@@ -80,7 +109,7 @@ class Editor(QMainWindow):
         self.setObjectName('MellowStudioMainWindow')
         self.settings=QSettings('MellowStudio','MellowStudio')
         self.doc=mellow_document()
-        self.history=History(32)
+        self.history=History()
         self.file_path: Path | None=None
         self.dirty=False
         self.tool='pencil'
@@ -178,6 +207,8 @@ class Editor(QMainWindow):
         self.add_action(edit,'Copy selection',self.copy_selection,'Ctrl+C')
         self.add_action(edit,'Cut selection',self.cut_selection,'Ctrl+X')
         self.add_action(edit,'Paste',self.paste_selection,'Ctrl+V')
+        self.add_action(edit,'Commit floating selection',self.commit_floating,'Ctrl+Return')
+        self.add_action(edit,'Cancel floating selection',self.cancel_floating)
         self.add_action(edit,'Select all',self.select_all,'Ctrl+A')
         self.add_action(edit,'Deselect',self.deselect,'Ctrl+Shift+A')
         edit.addSeparator()
@@ -353,7 +384,7 @@ class Editor(QMainWindow):
         self.duration.valueChanged.connect(self.duration_changed)
         top.addWidget(self.duration)
         v.addLayout(top)
-        self.timeline=QListWidget()
+        self.timeline=FrameTimeline()
         self.timeline.setViewMode(QListWidget.ViewMode.IconMode)
         self.timeline.setFlow(QListWidget.Flow.LeftToRight)
         self.timeline.setWrapping(False)
@@ -367,6 +398,7 @@ class Editor(QMainWindow):
         self.timeline.setMaximumHeight(136)
         self.timeline.setMinimumHeight(118)
         self.timeline.currentRowChanged.connect(self.frame_selected)
+        self.timeline.frameDropRequested.connect(self.reorder_selected_frames)
         v.addWidget(self.timeline)
         self.timeline_dock=self.build_dock('Animation timeline','TimelineDock',root,
                                           Qt.DockWidgetArea.BottomDockWidgetArea)
@@ -383,6 +415,8 @@ class Editor(QMainWindow):
                                          Qt.DockWidgetArea.RightDockWidgetArea)
 
     def set_tool(self,tool):
+        if tool not in ('move', 'marquee') and hasattr(self, 'canvas'):
+            self.commit_floating()
         self.tool=tool
         for name,b in self.tool_buttons.items():
             b.setChecked(name==tool)
@@ -404,13 +438,17 @@ class Editor(QMainWindow):
             if key in mapping and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
                 self.set_tool(mapping[key]);event.accept();return
             if key==Qt.Key.Key_Escape:
-                self.deselect();event.accept();return
+                if self.canvas.floating is not None:
+                    self.cancel_floating()
+                else:
+                    self.deselect()
+                event.accept();return
             if key in [Qt.Key.Key_BracketLeft, Qt.Key.Key_BracketRight]:
                 self.brush_spin.setValue(self.brush_size+(1 if key==Qt.Key.Key_BracketRight else -1))
                 event.accept();return
             arrow={Qt.Key.Key_Left:(-1,0),Qt.Key.Key_Right:(1,0),
                    Qt.Key.Key_Up:(0,-1),Qt.Key.Key_Down:(0,1)}
-            if key in arrow and self.canvas.selection:
+            if key in arrow and (self.canvas.selection or self.canvas.floating):
                 dx,dy=arrow[key]
                 mul=10 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1
                 self.nudge_selection(dx*mul,dy*mul)
@@ -421,7 +459,8 @@ class Editor(QMainWindow):
         super().keyReleaseEvent(event)
 
     def show_pixel(self,x,y):
-        c=self.doc.composite().getpixel((x,y))
+        preview = self.canvas.floating.render() if self.canvas.floating else None
+        c=self.doc.composite(cel_override=preview).getpixel((x,y))
         self.status.setText(f'Cell ({x}, {y}) · RGBA {c} · {self.doc.width}×{self.doc.height}')
 
     def show_zoom(self,zoom):
@@ -555,6 +594,7 @@ class Editor(QMainWindow):
         self.update_title()
 
     def begin_edit(self):
+        self.commit_floating()
         self.history.begin(self.doc)
 
     def finish_edit(self):
@@ -563,6 +603,9 @@ class Editor(QMainWindow):
             self.lightweight_refresh()
 
     def undo(self):
+        if self.canvas.floating is not None:
+            self.cancel_floating()
+            return
         if not self.history.undo:return
         self.doc=self.history.back(self.doc)
         self.canvas.selection=None
@@ -570,6 +613,9 @@ class Editor(QMainWindow):
         self.refresh_all()
 
     def redo(self):
+        if self.canvas.floating is not None:
+            self.cancel_floating()
+            return
         if not self.history.redo:return
         self.doc=self.history.forward(self.doc)
         self.canvas.selection=None
@@ -578,6 +624,8 @@ class Editor(QMainWindow):
 
     def frame_selected(self,index):
         if self._refreshing or index<0 or index>=len(self.doc.frames):return
+        if self.doc.active_frame != index:
+            self.commit_floating()
         self.doc.active_frame=index
         self.duration.blockSignals(True)
         self.duration.setValue(self.doc.frames[index].duration_ms)
@@ -593,6 +641,8 @@ class Editor(QMainWindow):
             self.play_timer.setInterval(value)
 
     def set_frame_fast(self, index):
+        if index % len(self.doc.frames) != self.doc.active_frame:
+            self.commit_floating()
         self.doc.active_frame=index % len(self.doc.frames)
         self.timeline.blockSignals(True)
         self.timeline.setCurrentRow(self.doc.active_frame)
@@ -665,6 +715,15 @@ class Editor(QMainWindow):
         self._frame_selection_override=new_indices
         self.finish_edit()
         self.refresh_all()
+
+    def reorder_selected_frames(self, insertion):
+        indices = self.selected_frame_indices()
+        self.begin_edit()
+        new_indices = self.doc.reorder_frames(indices, insertion)
+        self._frame_selection_override = new_indices
+        self.finish_edit()
+        self.refresh_all()
+        self.statusBar().showMessage(f'Moved {len(indices)} frame(s) to position {new_indices[0]+1}', 2000)
 
     def link_selected_cels(self):
         indices=self.selected_frame_indices()
@@ -777,21 +836,49 @@ class Editor(QMainWindow):
     def toggle_guides(self):
         self.canvas.show_guides=self.action_guides.isChecked();self.canvas.update()
 
+    def commit_floating(self):
+        floating = self.canvas.floating
+        if floating is None:
+            return False
+        self.history.begin(self.doc)
+        self.doc.replace_cel(floating.render())
+        self.canvas.floating = None
+        self.canvas.selection = None
+        self.finish_edit()
+        self.canvas.update()
+        return True
+
+    def cancel_floating(self):
+        if self.canvas.floating is None:
+            return
+        self.canvas.floating = None
+        self.canvas.selection = None
+        self.canvas.update()
+        self.statusBar().showMessage('Floating selection cancelled; pixels unchanged.', 2000)
+
     def select_all(self):
+        self.commit_floating()
         self.canvas.selection=(0,0,self.doc.width,self.doc.height);self.canvas.update()
 
     def deselect(self):
+        self.commit_floating()
         self.canvas.selection=None;self.canvas.update()
 
     def copy_selection(self):
-        rect=self.canvas.selection or (0,0,self.doc.width,self.doc.height)
-        selection=self.doc.cel.crop(rect)
-        self.copied=(selection,rect[0],rect[1])
+        if self.canvas.floating is not None:
+            selection = self.canvas.floating.pixels.copy()
+            x,y = self.canvas.floating.x,self.canvas.floating.y
+        else:
+            rect=self.canvas.selection or (0,0,self.doc.width,self.doc.height)
+            selection=self.doc.cel.crop(rect)
+            x,y=rect[:2]
+        self.copied=(selection,x,y)
         QApplication.clipboard().setImage(qimage_from_pil(selection))
         self.statusBar().showMessage(f'Copied {selection.width}×{selection.height} logical pixels',1800)
 
     def cut_selection(self):
         if self.doc.layer.locked:return
+        self.commit_floating()
         self.copy_selection()
         rect=self.canvas.selection or (0,0,self.doc.width,self.doc.height)
         self.begin_edit()
@@ -801,7 +888,8 @@ class Editor(QMainWindow):
         self.finish_edit()
 
     def paste_selection(self):
-        if self.doc.layer.locked:return
+        if self.doc.layer.locked or not self.doc.layer.visible:return
+        self.commit_floating()
         if self.copied:
             img,x,y=self.copied
         else:
@@ -810,21 +898,19 @@ class Editor(QMainWindow):
             img=pil_from_qimage(q)
             x=max(0,(self.doc.width-img.width)//2)
             y=max(0,(self.doc.height-img.height)//2)
-        self.begin_edit()
-        overlay=blank(self.doc.width,self.doc.height)
-        overlay.paste(img,(x,y))
-        self.doc.cel.alpha_composite(overlay)
-        self.canvas.selection=(max(0,x),max(0,y),min(self.doc.width,x+img.width),min(self.doc.height,y+img.height))
-        self.finish_edit()
+        self.canvas.floating=FloatingSelection.pasted(self.doc.cel,img,(x,y))
+        self.canvas.selection=None
+        self.set_tool('move')
+        self.canvas.update()
+        self.statusBar().showMessage('Floating paste: drag / arrows to position · Ctrl+Enter commit · Esc cancel',5000)
 
     def nudge_selection(self,dx,dy):
-        if not self.canvas.selection or self.doc.layer.locked:return
-        from .model import move_selection
-        self.begin_edit()
-        move_selection(self.doc.cel,self.canvas.selection,(dx,dy))
-        x0,y0,x1,y1=self.canvas.selection
-        self.canvas.selection=(x0+dx,y0+dy,x1+dx,y1+dy)
-        self.finish_edit()
+        if self.doc.layer.locked or not self.doc.layer.visible:return
+        if self.canvas.floating is None:
+            if self.canvas.selection is None:return
+            self.canvas.floating=FloatingSelection.from_cel(self.doc.cel,self.canvas.selection)
+        self.canvas.floating.shift(dx,dy)
+        self.canvas.update()
 
     def flip_cel(self,horizontal):
         if self.doc.layer.locked:return
@@ -845,7 +931,7 @@ class Editor(QMainWindow):
         self.canvas.selection=None;self.refresh_all()
 
     def confirm_discard(self):
-        if not self.dirty:return True
+        if not self.dirty and self.canvas.floating is None:return True
         result=QMessageBox.question(self,'Unsaved work',
           'Save changes to the current project?',
           QMessageBox.StandardButton.Save|QMessageBox.StandardButton.Discard|QMessageBox.StandardButton.Cancel,
@@ -977,8 +1063,9 @@ class Editor(QMainWindow):
         self.doc=doc
         self.file_path=file_path
         self.dirty=(file_path is None)
-        self.history=History(32)
+        self.history=History()
         self.canvas.selection=None
+        self.canvas.floating=None
         self.copied=None
         self.frames_clipboard=[]
         self._frame_selection_override=[doc.active_frame]
@@ -989,6 +1076,7 @@ class Editor(QMainWindow):
         self.setWindowTitle(('* ' if self.dirty else '')+self.doc.name+' — '+APP_TITLE)
 
     def save_project(self):
+        self.commit_floating()
         if self.file_path is None:return self.save_project_as()
         try:
             project_save(self.doc,self.file_path)
@@ -1000,6 +1088,7 @@ class Editor(QMainWindow):
             return False
 
     def save_project_as(self):
+        self.commit_floating()
         path,_=QFileDialog.getSaveFileName(self,'Save Mellow Studio project',
                     (self.doc.name.replace('·','-').replace('×','x')+'.mellowzip'),
                     'Mellow Studio project (*.mellowzip)')
@@ -1055,9 +1144,15 @@ class Editor(QMainWindow):
         return directory/'mellow_autorecover.mellowzip'
 
     def autosave(self):
-        if not self.dirty:return
+        if not self.dirty and self.canvas.floating is None:return
         try:
-            project_save(self.doc,self.autosave_path())
+            if self.canvas.floating is not None:
+                # Recovery includes the in-progress preview without committing it in the editor.
+                recovered = self.doc.copy()
+                recovered.replace_cel(self.canvas.floating.render())
+                project_save(recovered, self.autosave_path())
+            else:
+                project_save(self.doc,self.autosave_path())
             self.statusBar().showMessage('Recovery snapshot saved.',1500)
         except Exception:
             self.statusBar().showMessage('Recovery snapshot unavailable.',2200)
@@ -1096,7 +1191,7 @@ class Editor(QMainWindow):
             event.ignore();return
         self.settings.setValue('window/geometry',self.saveGeometry())
         self.settings.setValue('window/state',self.saveState())
-        if not self.dirty:
+        if not self.dirty and self.canvas.floating is None:
             self.autosave_path().unlink(missing_ok=True)
         super().closeEvent(event)
 
@@ -1106,9 +1201,11 @@ class Editor(QMainWindow):
           'O ellipse, M selection, V move, H pan.\n\n'
           'Ctrl+D duplicate selected frames · Ctrl+Shift+D linked exposures · Ctrl+Alt+H linked holds.\n'
           'Ctrl/Shift-click multiple timeline frames · Ctrl+Alt+C/V copy/paste frame blocks.\n'
-          'Ctrl+Alt+Left/Right move selected frames · Alt+N blank · Space playback.\n'
+          'Drag selected timeline frames to reorder · Ctrl+Alt+Left/Right moves one slot.\n'
+          'Alt+N blank frame · Space playback.\n'
           'Ctrl+Z/Y undo/redo · Ctrl+C/X/V copy/cut/paste · Ctrl+A select all · '
-          'Ctrl+Shift+A deselect · Arrow keys nudge selected pixels (Shift = 10 cells).\n'
+          'Ctrl+Shift+A deselect · Arrow keys position a floating selection (Shift = 10).\n'
+          'Ctrl+Enter commits floating pixels · Esc cancels the uncommitted float.\n'
           'Ctrl+N/O/S new/open/save · Ctrl+I measured import · Ctrl+E export PNG.\n'
           'G show grid · Shift+O onion skin · Ctrl+mouse wheel zoom · middle drag pan · '
           '[ and ] brush size · right mouse secondary color.\n\n'

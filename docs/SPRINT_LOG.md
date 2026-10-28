@@ -57,3 +57,12 @@ Run `start_windows.bat`, then:
 ## Release acceptance
 
 Source distribution is intentionally distinct from a **Windows-verified executable**. The engine test suite passes under this environment. PySide6 is not available here, so Qt UI behavior and EXE packaging have not been runtime-verified. Do not claim otherwise. Next release gate is a real Windows/Qt smoke run.
+
+## Sprint 0.2.1 — feature branch work (unreleased)
+
+- Floating selection model keeps preview detached from actual cel pixels until Ctrl+Enter or another operation commits. Esc cancels; linked exposure aliases propagate on commit only.
+- Reorder across timeline insertion boundaries supports multi-select/discontiguous blocks. Frame identity, duration and link aliases are retained. Engine tests cover reordering and history restoration.
+- Undo/redo now uses compressed unique RGBA image buffers, respecting a 128 MiB limit and 128 actions; still snapshot-based, not region-delta history.
+- Autosave captures floating previews into a separate recovery snapshot, and unsaved prompts recognize pending floats.
+- Expanded test cases: `tests/test_sprint021.py`, and a Qt interaction test in `tests/test_qt_smoke.py`.
+- **Release gate**: Windows CI must run the Qt interaction smoke, then real Windows interactive dragging should be checked before marking the feature stable.

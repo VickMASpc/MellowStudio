@@ -1,6 +1,13 @@
-# Mellow Studio — v0.2.0
+# Mellow Studio — v0.2.x
 
 > **v0.2.0 source milestone (2026-10-28)** — animation timeline multi-select, linked exposures/holds, frame-block copy/paste and stepwise reordering, automatic pixel-grid size suggestions, manual right-drag alignment, version-2 project format and a headless batch exporter. See [`docs/SPRINT_LOG.md`](docs/SPRINT_LOG.md) for what is verified versus still pending.
+
+### Sprint 0.2.1 — development preview
+
+- **Float, then commit:** drag an existing marquee selection using the Move tool (`V`), or `Ctrl+V` to stage pasted pixels as a floating fragment. The cel is unchanged during movement.
+- Position precisely with arrow keys (`Shift` = 10 logical cells). `Ctrl+Enter` commits one undoable action. `Esc` cancels the float and restores the untouched cel. Switching to a painting tool or another frame commits the pending pixels.
+- **Timeline drag reordering:** Ctrl/Shift-select one or more thumbnails, then drag to a new insertion point. Underlying frame objects, timing and linked exposures move together.
+- **Memory budget:** undo/redo now stores compressed cell buffers and deduplicates linked exposures; history is bounded to 128 commands or 128 MiB, whichever applies first. This is compressed snapshot history, not delta history.
 
 ### New shortcuts in 0.2
 
@@ -49,7 +56,7 @@ To build a portable Windows application folder containing `MellowStudio.exe`, ru
 
 - **Pixel-exact editing:** integer zoom, checker transparency, logical-cell grid, actual cell coordinates, native-resolution output, Mellow eye-highlight guides.
 - **Drawing:** pencil, eraser, bucket (contiguous / all matching pixels), color sampler, 1–32px brushes, line, outline/solid rectangle, outline/solid ellipse, horizontal/vertical symmetry.
-- **Selections:** rectangular marquee, move selection, keyboard arrow nudging in logical pixels, copy/cut/paste (including system clipboard), select all, deselect.
+- **Selections:** rectangular marquee, non-destructive floating move/paste preview with explicit commit/cancel, keyboard arrow nudging in logical pixels, copy/cut/paste (including system clipboard), select all, deselect.
 - **Animation:** independently editable full frames, duplicate frame, blank frame, delete frame, frame durations, frame thumbnails, onion skin, looping preview, previous/next shortcuts.
 - **Layers:** create, delete, rename, reorder, lock, show/hide, opacity, independent cels per layer *and* frame.
 - **Measuring/import:** interactive source overlay, manual columns/rows, fractional cell pitch, grid origin, two-click boundary measurement, automatic **edge alignment** for an already-specified logical grid, Mellow exact preset, anti-halo median interior sampling or center sampling.
