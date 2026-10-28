@@ -1,8 +1,8 @@
 # Mellow Studio — sprint log and release gates
 
 **Updated:** 2026-10-28  
-**Current merged baseline:** `main`, v0.2.2 implementation merged in [PR #5](https://github.com/VickMASpc/MellowStudio/pull/5), passing Windows/Linux CI. Physical Windows acceptance gates remain open.  
-**Active sprint:** 0.2.3 flagship reference reconstruction and modest native UI refresh. **Status: implementation, not a fully accepted or Windows-verified release.**  
+**Current merged baseline:** `main`, v0.2.3 Reference Lab merged in [PR #6](https://github.com/VickMASpc/MellowStudio/pull/6), passing Windows/Linux CI. Physical Windows acceptance gates remain open.  
+**Active work:** completion of flagship reference registration in [Issue #7](https://github.com/VickMASpc/MellowStudio/issues/7) and remaining recovery/performance gates in [Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3). **Status: implementation, not a fully accepted physical-Windows release.**  
 **Roadmap:** [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md). A source implementation is not a release acceptance.
 
 ## Evidence conventions (mandatory)
@@ -56,8 +56,6 @@
 
 **Risk:** An offset suggestion cannot distinguish deliberate sprite motion from a screen crop; confidence is heuristic and review is mandatory. Pixels literally clipped outside a screenshot cannot be restored. The original JPEG bitstream/EXIF is not retained, only original decoded pixels converted losslessly to embedded PNG.
 
-**CI outcome (PR #6, run 40700781027):** Documentation gate passed; Ubuntu Python 3.11 and 3.13 engine tests passed; Windows Python 3.11 and 3.13 each completed **58 passed** including new Qt Reference Lab interaction smoke. All 5 jobs passed. This is automated Qt offscreen coverage, not physical Windows usability certification.
-
 **Next:** after CI and physical Windows use, focus on variable-scale alignment and landmark registration, then 0.3A drawing fundamentals. Keep 0.2.2 manual stability/performance gates tracked on Issue #3 rather than falsely declaring them complete.
 
 ## Remaining sprint order / forward gates
@@ -84,3 +82,13 @@
 **Measured baseline:** see [`PERFORMANCE_BASELINE_SANDBOX.json`](PERFORMANCE_BASELINE_SANDBOX.json). Median Linux sandbox (Python 3.13): 41×55 / 2 layers / 8 frames **0.026ms** single-frame composite; 128×128 / 8 layers / 24 frames **0.162ms**; 256×256 / 4 layers / 24 frames **0.229ms**. Save medians 13.7/130.0/191.4ms respectively. These are headless synthetic workloads, **not** end-user Qt frame latency or Ryzen 5700U measurements; Python `tracemalloc` does not include all native/Qt memory.
 
 **Gates still open:** real Windows drag/60-second drawing and recovery tests; actual Windows/5700U latency and RAM; precise region-delta history, per-pixel invalidation, complete keyboard/HiDPI interaction suite and crash/power-failure simulation. 0.2.2 remains **in progress** regardless of green CI; next sprint 0.2.3 still prioritizes reference registration over general editor expansion.
+
+## Repository maintenance — merged-branch cleanup (2026-10-28)
+
+**Audit before changes:** five GitHub branches existed: `main` plus `feat/sprint-021-floating-selections-timeline`, `chore/roadmap-sprint-governance-022`, `feat/sprint-022-safe-projects-fast-canvas-dither`, `feat/sprint-023-reference-lab-studio-ui`. All four feature/chore branches were PR heads of PR #2, #4, #5, #6, respectively; all PRs were merged with identical historical branch-head SHAs. No open PRs. Latest `main` workflow had passed. The branches were stale after squash merge, not four new development lines.
+
+**Change:** add GitHub Actions branch janitor (runs after pushes to `main`) with strict same-repository merged-PR/head-SHA checking, protected/default branch exclusion, and a test that proves unmerged, changed, forked and protected branches survive. Add Windows `./dev.ps1 sync`: fetch/prune, fast-forward-only main, optional exact-SHA-verified old local branch removal; refuses dirty worktree/diverged main/unexpected remote and never deletes `.venv`.
+
+**Evidence:** offline JavaScript decision-rule test passes. GitHub deletion counts and post-merge Actions outcome to be recorded after this PR merges; physical Windows command execution not yet validated. No claim of changing the user's local Git checkout remotely.
+
+**Remaining:** user-local authentication, DNS, proxy, uncommitted modifications or divergent history cannot be diagnosed via repository-side GitHub data alone. GitHub workflow permissions may prevent automatic deletion; report that explicitly if it occurs.
