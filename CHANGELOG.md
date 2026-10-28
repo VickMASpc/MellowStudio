@@ -1,3 +1,15 @@
+# Changelog
+
+## Unreleased — Sprint 0.2.2 development
+
+- Added two-color adjustable ordered-dither paint tool, shortcut D, and 4×4 Bayer pattern with exact-cell continuity.
+- Cached canvas/animation composites, onion frames and thumbnails with selective linked-cel invalidation; reduced timeline alias counting from quadratic to linear.
+- Added validated unique-temp atomic project writes, previous-save `.bak`, and failure-preserving Save As behavior.
+- Added per-project rotating recovery archives, chooser and legacy single-slot recovery compatibility.
+- Added repeatable 41×55, 128×128 and 256×256 benchmarks; updated roadmap and sprint log.
+- Added file-integrity, backup, failure-injection, multi-project recovery, dither/undo and Windows Qt interaction regression tests.
+- Not completed yet: delta-undo, comprehensive keyboard/high-DPI checks, physical Windows drawing and 5700U performance validation.
+
 # Mellow Studio — changelog
 
 ## v0.2.0 — 2026-10-28

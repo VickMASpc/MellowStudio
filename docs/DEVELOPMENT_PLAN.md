@@ -1,6 +1,6 @@
 # Mellow Studio — product specification & development cycle
 
-**Canonical roadmap:** this file in GitHub. **Current baseline:** v0.2.1 merged on 2026-10-28 (PR #2); **next sprint:** 0.2.2 reliability and transactions ([Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3)). Keep the [sprint log](SPRINT_LOG.md) synchronized with each implementation PR. Future phase targets below are not claims of verified functionality.
+**Canonical roadmap:** this file in GitHub. **Current merged baseline:** v0.2.1 on 2026-10-28; **active development:** v0.2.2 (PR #2); **next sprint:** 0.2.2 reliability and transactions ([Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3)). Keep the [sprint log](SPRINT_LOG.md) synchronized with each implementation PR. Future phase targets below are not claims of verified functionality.
 
 ## A. The problem worth solving
 
@@ -221,3 +221,7 @@ Target test machine: Ryzen 7 5700U with integrated graphics and 16 GB RAM. **Tar
 4. **No silent scope drop:** deferred work stays in the feature inventory; new risks and known regressions get GitHub issues, and changes in scope/order get dated rationale in the sprint log.
 5. **For each sprint closeout:** record the GitHub PR/commit, Windows CI and hands-on status, baseline regressions, benchmark numbers or explicit `NOT MEASURED`, release readiness, and the successor sprint.
 6. **Merge policy:** feature branches/PRs → CI → manual validation where necessary → merge to `main`; releases are tagged on tested commits. A branch protection rule should require the docs-gate check; until configured, CI cannot technically prevent bypass.
+
+## K. Active code verification addendum (Sprint 0.2.2)
+
+The editor now has **actual in-progress changes**, not just planning: a foreground/background Bayer dither brush (`D`, adjustable 0–16 mix); per-project recovery snapshots/chooser and legacy support; validating atomic project saves with pre-replacement integrity check and `.bak` preservation; frame/onion/thumbnail QImage caching with linked-cel invalidation; and a repeatable headless benchmark script. The change does **not** imply that region-delta undo, 12-frame per-source registration, 5700U performance validation or the 60-second Windows manual acceptance gate are complete. See [SPRINT_LOG.md](SPRINT_LOG.md) and [`PERFORMANCE_BASELINE_SANDBOX.json`](PERFORMANCE_BASELINE_SANDBOX.json) for evidence and limitations. On every next implementation PR update both documents with measured results, new failures and newly accepted or deferred tasks.

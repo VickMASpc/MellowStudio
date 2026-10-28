@@ -1,4 +1,15 @@
-# Mellow Studio — v0.2.x
+# Mellow Studio — v0.2.2 development build
+
+## Sprint 0.2.2 — real additions
+
+- **New 2-color Bayer dither brush (`D`)**: paints foreground and secondary color with exact-pixel 4×4 ordered dithering, deterministic across separate strokes and linked cels. Adjust **Mix** (0–16) on the drawing toolbar; brush size and symmetry work normally.
+- **Fast frame painting and playback:** cached frame QImages and preview thumbnails; edits invalidate only affected linked frames, and frame switches reuse cached composites. Refreshing the timeline no longer scans every linked frame against every other frame.
+- **Safer files:** every `.mellowzip` write is validated for ZIP integrity and project semantics before atomically replacing an existing file. A prior saved file is retained as `<project>.mellowzip.bak`. Failed Save As keeps the previous filename and unsaved state.
+- **Project-specific recovery:** separate rotating snapshots (four per project) with timestamps, original filenames and a recovery chooser in **File → Recover autosaved project…**. Unsaved sessions don't collide; previous 0.2.1 single-slot recovery remains readable.
+- **Regression and benchmarks:** deterministic save-failure/corruption/rotation/dither tests and repeatable `python scripts/benchmark.py` on representative sprite workloads. Read `docs/SPRINT_LOG.md` for measured results and remaining Windows manual tests.
+
+**Status:** development sprint implementation, not a certified production release. The 0.2.2 acceptance gate also requires physical Windows drawing, file/recovery and performance validation. The canonical plan and log are updated in every code PR.
+
 
 > **v0.2.0 source milestone (2026-10-28)** — animation timeline multi-select, linked exposures/holds, frame-block copy/paste and stepwise reordering, automatic pixel-grid size suggestions, manual right-drag alignment, version-2 project format and a headless batch exporter. See [`docs/SPRINT_LOG.md`](docs/SPRINT_LOG.md) for what is verified versus still pending.
 

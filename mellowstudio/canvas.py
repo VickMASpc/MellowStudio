@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, Signal, QPoint, QRect, QSize
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QWidget, QAbstractScrollArea
 
-from .model import draw_stroke, draw_shape, bucket_fill, FloatingSelection
+from .model import draw_stroke, draw_dither_stroke, draw_shape, bucket_fill, FloatingSelection
 
 
 def qimage_from_pil(image: Image.Image) -> QImage:
@@ -90,13 +90,14 @@ class PixelCanvas(QWidget):
             for delta, opacity in [(-1, .20), (1, .15)]:
                 f = d.active_frame + delta
                 if 0 <= f < len(d.frames):
-                    image = qimage_from_pil(d.composite(f))
+                    image = self.editor.composite_qimage(f)
                     p.setOpacity(opacity)
                     p.drawImage(QRect(0, 0, self.width(), self.height()), image)
             p.setOpacity(1.0)
         preview_cel = self.floating.render() if self.floating is not None else None
         p.drawImage(QRect(0, 0, self.width(), self.height()),
-                    qimage_from_pil(d.composite(cel_override=preview_cel)))
+                    (qimage_from_pil(d.composite(cel_override=preview_cel)) if preview_cel is not None
+                     else self.editor.composite_qimage(d.active_frame)))
         if self.show_grid and s >= 6:
             p.setPen(QPen(QColor(13, 23, 37, 100), 1))
             for x in range(d.width + 1):
@@ -187,6 +188,10 @@ class PixelCanvas(QWidget):
         if tool in ('pencil', 'secondary-pencil', 'eraser'):
             draw_stroke(img, [self.last_point, point], color,
                         self.editor.brush_size, self.sym_x, self.sym_y)
+        elif tool == 'dither':
+            draw_dither_stroke(img, [self.last_point, point],
+                self.editor.foreground, self.editor.secondary, self.editor.brush_size,
+                self.editor.dither_level, self.sym_x, self.sym_y)
         elif tool == 'bucket':
             bucket_fill(img, point, color, self.editor.contiguous)
         elif tool in ('line', 'rectangle', 'ellipse'):

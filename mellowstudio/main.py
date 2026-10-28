@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 import sys
+from uuid import uuid4
 
 from PIL import Image, ImageOps
 from PySide6.QtCore import Qt, QTimer, QSettings, QByteArray, QSize, QStandardPaths, Signal
@@ -18,12 +20,13 @@ from PySide6.QtWidgets import (
 
 from .model import (Document, History, project_load, project_save, blank,
                     flip_cel, draw_stroke, FloatingSelection)
+from .recovery import RecoveryStore
 from .samples import mellow_document
 from .canvas import PixelCanvas, qimage_from_pil, pil_from_qimage
 from .importer import ImportDialog
 
 APP_TITLE = 'Mellow Studio'
-VERSION = '0.2.1-dev'
+VERSION = '0.2.2-dev'
 
 
 class Swatch(QPushButton):
@@ -110,6 +113,13 @@ class Editor(QMainWindow):
         self.settings=QSettings('MellowStudio','MellowStudio')
         self.doc=mellow_document()
         self.history=History()
+        self._composite_cache: dict[int, QImage] = {}
+        self._thumb_cache: dict[tuple[int, int], QPixmap] = {}
+        self._canvas_dirty_frames: set[int] = set()
+        self.recovery = RecoveryStore(Path(QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.AppDataLocation)) / 'recovery')
+        self._recovery_session = uuid4().hex
+        self._recovered_entry = None
         self.file_path: Path | None=None
         self.dirty=False
         self.tool='pencil'
@@ -117,6 +127,7 @@ class Editor(QMainWindow):
         self.foreground=(172,49,50,255)
         self.secondary=(255,255,255,255)
         self.brush_size=1
+        self.dither_level=8
         self.contiguous=True
         self.preview_playing=False
         self._refreshing=False
@@ -162,7 +173,7 @@ class Editor(QMainWindow):
         self.statusBar().showMessage('Mellow 41×55 loaded · Press Ctrl+D to duplicate a frame',6500)
 
     def connect_canvas(self):
-        self.canvas.changed.connect(self.canvas.update)
+        self.canvas.changed.connect(self.on_canvas_changed)
         self.canvas.cursorMoved.connect(self.show_pixel)
         self.canvas.sampled.connect(self.sample_color)
         self.canvas.zoomChanged.connect(self.show_zoom)
@@ -185,6 +196,7 @@ class Editor(QMainWindow):
         self.add_action(file,'Open project…',self.open_project,'Ctrl+O')
         self.add_action(file,'Save project',self.save_project,'Ctrl+S')
         self.add_action(file,'Save project as…',self.save_project_as,'Ctrl+Shift+S')
+        self.add_action(file,'Recover autosaved project…',self.recover_autosave)
         file.addSeparator()
         self.add_action(file,'Open bundled Mellow (41×55)',self.open_mellow)
         self.add_action(file,'Import measured screenshot…',self.import_reference,'Ctrl+I')
@@ -261,12 +273,12 @@ class Editor(QMainWindow):
         tb.setIconSize(QSize(20,20))
         self.addToolBar(Qt.ToolBarArea.LeftToolBarArea,tb)
         self.tool_buttons={}
-        entries=[('pencil','Pencil','B'),('eraser','Eraser','E'),
+        entries=[('pencil','Pencil','B'),('dither','2-color Dither','D'),('eraser','Eraser','E'),
                  ('bucket','Fill','F'),('picker','Eyedropper','I'),
                  ('line','Line','L'),('rectangle','Rectangle','R'),
                  ('ellipse','Ellipse','O'),('marquee','Marquee','M'),
                  ('move','Move selection','V'),('pan','Pan','H')]
-        glyphs={'pencil':'✎','eraser':'⌫','bucket':'▥','picker':'◉','line':'╱',
+        glyphs={'pencil':'✎','dither':'▦','eraser':'⌫','bucket':'▥','picker':'◉','line':'╱',
                 'rectangle':'▭','ellipse':'◯','marquee':'▧','move':'✥','pan':'✋'}
         for tool, desc, key in entries:
             b=QToolButton();b.setText(glyphs[tool])
@@ -283,6 +295,13 @@ class Editor(QMainWindow):
         self.brush_spin.setValue(1)
         self.brush_spin.valueChanged.connect(lambda v:setattr(self,'brush_size',v))
         tb.addWidget(self.brush_spin)
+        tb.addWidget(QLabel('Mix'))
+        self.dither_spin=QSpinBox()
+        self.dither_spin.setToolTip('Dither mix: 0=secondary color, 16=foreground; 8=50%')
+        self.dither_spin.setRange(0,16)
+        self.dither_spin.setValue(8)
+        self.dither_spin.valueChanged.connect(lambda v:setattr(self,'dither_level',v))
+        tb.addWidget(self.dither_spin)
         tb.addSeparator()
         self.sym_x_box=QCheckBox('X↔')
         self.sym_y_box=QCheckBox('Y↕')
@@ -431,7 +450,7 @@ class Editor(QMainWindow):
             super().keyPressEvent(event);return
         if event.modifiers() in (Qt.KeyboardModifier.NoModifier, Qt.KeyboardModifier.ShiftModifier):
             key=event.key()
-            mapping={Qt.Key.Key_B:'pencil',Qt.Key.Key_E:'eraser',Qt.Key.Key_F:'bucket',
+            mapping={Qt.Key.Key_B:'pencil',Qt.Key.Key_D:'dither',Qt.Key.Key_E:'eraser',Qt.Key.Key_F:'bucket',
                      Qt.Key.Key_I:'picker',Qt.Key.Key_L:'line',Qt.Key.Key_R:'rectangle',
                      Qt.Key.Key_O:'ellipse',Qt.Key.Key_M:'marquee',Qt.Key.Key_V:'move',
                      Qt.Key.Key_H:'pan'}
@@ -459,8 +478,11 @@ class Editor(QMainWindow):
         super().keyReleaseEvent(event)
 
     def show_pixel(self,x,y):
-        preview = self.canvas.floating.render() if self.canvas.floating else None
-        c=self.doc.composite(cel_override=preview).getpixel((x,y))
+        if self.canvas.floating:
+            c = self.doc.composite(cel_override=self.canvas.floating.render()).getpixel((x,y))
+        else:
+            q = self.composite_qimage(self.doc.active_frame)
+            c = tuple(q.pixelColor(x, y).getRgb())
         self.status.setText(f'Cell ({x}, {y}) · RGBA {c} · {self.doc.width}×{self.doc.height}')
 
     def show_zoom(self,zoom):
@@ -471,7 +493,39 @@ class Editor(QMainWindow):
         self.canvas.set_zoom(max(2,min(64,size.width()//self.doc.width,
                                            size.height()//self.doc.height)))
 
+    def invalidate_render(self, indices=None):
+        if indices is None:
+            self._composite_cache.clear()
+            self._thumb_cache.clear()
+        else:
+            for i in indices:
+                self._composite_cache.pop(i, None)
+                for key in list(self._thumb_cache):
+                    if key[0] == i:
+                        self._thumb_cache.pop(key, None)
+
+    def composite_qimage(self, index: int) -> QImage:
+        if index not in self._composite_cache:
+            self._composite_cache[index] = qimage_from_pil(self.doc.composite(index))
+        return self._composite_cache[index]
+
+    def thumbnail(self, index: int, size: int) -> QPixmap:
+        key = (index, size)
+        if key not in self._thumb_cache:
+            self._thumb_cache[key] = QPixmap.fromImage(self.composite_qimage(index)).scaled(
+                size, size, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.FastTransformation)
+        return self._thumb_cache[key]
+
+    def on_canvas_changed(self):
+        indices = self.doc.linked_frames()
+        self._canvas_dirty_frames.update(indices)
+        self.invalidate_render(indices)
+        self.canvas.update()
+
     def refresh_all(self):
+        self.invalidate_render()
+        self._canvas_dirty_frames.clear()
         self._refreshing=True
         try:
             self.canvas.adjust_size()
@@ -501,12 +555,15 @@ class Editor(QMainWindow):
 
     def refresh_timeline(self):
         selected = self.selected_frame_indices()
+        # Count linked references once: O(frames), not O(frames²).
+        from collections import Counter
+        aliases = Counter(id(f.cels[self.doc.active_layer]) for f in self.doc.frames)
         self.timeline.blockSignals(True)
         self.timeline.clear()
         for i,frame in enumerate(self.doc.frames):
-            linked = len(self.doc.linked_frames(frame_index=i)) > 1
+            linked = aliases[id(frame.cels[self.doc.active_layer])] > 1
             icon = ' ↔' if linked else ''
-            item=QListWidgetItem(QIcon(pixmap_thumb(self.doc.composite(i),76)),
+            item=QListWidgetItem(QIcon(self.thumbnail(i,76)),
                                  f'#{i+1:02d}{icon} · {frame.duration_ms} ms')
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             item.setSizeHint(QSize(95,105))
@@ -585,8 +642,19 @@ class Editor(QMainWindow):
         self.set_tool('pencil')
 
     def refresh_preview(self):
-        self.preview.setPixmap(pixmap_thumb(self.doc.composite(),175))
+        self.preview.setPixmap(self.thumbnail(self.doc.active_frame,175))
         self.canvas.update()
+
+    def refresh_changed_thumbnails(self, indices):
+        if self.timeline.count() != len(self.doc.frames):
+            self.refresh_timeline()
+            return
+        for i in indices:
+            if 0 <= i < self.timeline.count():
+                item = self.timeline.item(i)
+                item.setIcon(QIcon(self.thumbnail(i,76)))
+        self.refresh_preview()
+
 
     def lightweight_refresh(self):
         self.refresh_timeline()
@@ -598,9 +666,16 @@ class Editor(QMainWindow):
         self.history.begin(self.doc)
 
     def finish_edit(self):
+        frames = set(self._canvas_dirty_frames)
+        self._canvas_dirty_frames.clear()
         if self.history.commit(self.doc):
             self.dirty=True
-            self.lightweight_refresh()
+            if frames:
+                self.refresh_changed_thumbnails(frames)
+                self.update_title()
+            else:
+                self.invalidate_render()
+                self.lightweight_refresh()
 
     def undo(self):
         if self.canvas.floating is not None:
@@ -939,8 +1014,11 @@ class Editor(QMainWindow):
         if result==QMessageBox.StandardButton.Cancel:return False
         if result==QMessageBox.StandardButton.Save:return self.save_project()
         # Explicit discard must not reappear as a recovery offer next launch.
-        try:self.autosave_path().unlink(missing_ok=True)
-        except OSError:pass
+        self.recovery.discard_token(self.recovery.token_for(
+            self.file_path, self._recovery_session))
+        if self._recovered_entry is not None:
+            self.recovery.discard(self._recovered_entry)
+            self._recovered_entry = None
         return True
 
     def new_project(self):
@@ -1064,6 +1142,10 @@ class Editor(QMainWindow):
         self.file_path=file_path
         self.dirty=(file_path is None)
         self.history=History()
+        self._recovery_session = uuid4().hex
+        self._recovered_entry = None
+        self.invalidate_render()
+        self._canvas_dirty_frames.clear()
         self.canvas.selection=None
         self.canvas.floating=None
         self.copied=None
@@ -1075,28 +1157,39 @@ class Editor(QMainWindow):
     def update_title(self):
         self.setWindowTitle(('* ' if self.dirty else '')+self.doc.name+' — '+APP_TITLE)
 
-    def save_project(self):
+    def _save_to_path(self, path: Path) -> bool:
         self.commit_floating()
-        if self.file_path is None:return self.save_project_as()
+        previous_path = self.file_path
+        previous_token = self.recovery.token_for(previous_path, self._recovery_session)
         try:
-            project_save(self.doc,self.file_path)
-            self.dirty=False;self.update_title()
-            self.statusBar().showMessage('Project saved · '+str(self.file_path),3500)
-            return True
+            project_save(self.doc, path)
         except Exception as exc:
-            QMessageBox.critical(self,'Save failed',str(exc))
+            # Never switch project identity or clear the dirty flag on failed save.
+            QMessageBox.critical(self, 'Save failed', str(exc))
             return False
+        self.file_path = path
+        self.dirty = False
+        self.recovery.discard_token(previous_token)
+        if self._recovered_entry is not None:
+            self.recovery.discard(self._recovered_entry)
+            self._recovered_entry = None
+        self.update_title()
+        self.statusBar().showMessage('Project saved · ' + str(path),3500)
+        return True
+
+    def save_project(self):
+        if self.file_path is None:
+            return self.save_project_as()
+        return self._save_to_path(self.file_path)
 
     def save_project_as(self):
-        self.commit_floating()
         path,_=QFileDialog.getSaveFileName(self,'Save Mellow Studio project',
                     (self.doc.name.replace('·','-').replace('×','x')+'.mellowzip'),
                     'Mellow Studio project (*.mellowzip)')
         if not path:return False
         p=Path(path)
         if p.suffix.lower()!='.mellowzip':p=p.with_suffix('.mellowzip')
-        self.file_path=p
-        return self.save_project()
+        return self._save_to_path(p)
 
     def export_png(self):
         path,_=QFileDialog.getSaveFileName(self,'Export current frame',self.doc.name+'.png','PNG image (*.png)')
@@ -1138,38 +1231,61 @@ class Editor(QMainWindow):
             self.doc.composite(i).save(d/f'{self.doc.name}_frame_{i+1:04d}.png')
         self.statusBar().showMessage(f'Exported {len(self.doc.frames)} PNG frames.',3500)
 
-    def autosave_path(self):
-        directory=Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation))
-        directory.mkdir(parents=True,exist_ok=True)
-        return directory/'mellow_autorecover.mellowzip'
-
     def autosave(self):
-        if not self.dirty and self.canvas.floating is None:return
+        if not self.dirty and self.canvas.floating is None:
+            return
         try:
             if self.canvas.floating is not None:
-                # Recovery includes the in-progress preview without committing it in the editor.
                 recovered = self.doc.copy()
                 recovered.replace_cel(self.canvas.floating.render())
-                project_save(recovered, self.autosave_path())
             else:
-                project_save(self.doc,self.autosave_path())
-            self.statusBar().showMessage('Recovery snapshot saved.',1500)
+                recovered = self.doc
+            self.recovery.write(recovered, self.file_path, self._recovery_session)
+            self.statusBar().showMessage('Project-specific recovery snapshot saved.',1500)
         except Exception:
-            self.statusBar().showMessage('Recovery snapshot unavailable.',2200)
+            self.statusBar().showMessage('Recovery snapshot unavailable — check disk.',3000)
 
     def recover_autosave(self):
-        path=self.autosave_path()
-        if not path.exists():return
-        ans=QMessageBox.question(self,'Recovery project found',
-           'A previous automatic recovery project exists. Open it?\n'
-           '(Choosing No leaves it on disk until the next autosave.)',
-           QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No)
-        if ans==QMessageBox.StandardButton.Yes:
-            try:
-                self.set_document(project_load(path))
-                self.dirty=True;self.update_title()
-            except Exception as exc:
-                QMessageBox.warning(self,'Recovery failed',str(exc))
+        entries = self.recovery.entries()
+        if not entries:
+            # Upgrade path for pre-0.2.2 single-slot crash recovery.
+            legacy = self.recovery.root.parent / 'mellow_autorecover.mellowzip'
+            if not legacy.is_file():
+                self.statusBar().showMessage('No recovery snapshots found.',3000)
+                return
+            choice = QMessageBox.question(self,'Legacy recovery found',
+                'A recovery from Mellow Studio 0.2.1 is available. Open it?',
+                QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No)
+            if choice == QMessageBox.StandardButton.Yes:
+                try:
+                    recovered = project_load(legacy)
+                    if self.confirm_discard():
+                        self.set_document(recovered)
+                        self.dirty = True
+                        self.update_title()
+                except Exception as exc:
+                    QMessageBox.warning(self,'Recovery failed',str(exc))
+            return
+        options = [f'{datetime.fromtimestamp(e.created_at):%Y-%m-%d %H:%M}  ·  '
+                   f'{e.project_name}  ·  {e.project_path or "Unsaved session"}'
+                   for e in entries]
+        selected, ok = QInputDialog.getItem(self, 'Restore recovery snapshot',
+            'Choose a project-specific snapshot to reopen:',options,0,False)
+        if not ok:
+            return
+        entry = entries[options.index(selected)]
+        try:
+            recovered = project_load(entry.archive)
+        except Exception as exc:
+            QMessageBox.warning(self,'Recovery failed',str(exc))
+            return
+        if not self.confirm_discard():
+            return
+        self.set_document(recovered, Path(entry.project_path) if entry.project_path else None)
+        self._recovered_entry = entry
+        self.dirty = True
+        self.update_title()
+        self.statusBar().showMessage('Recovery opened. Save to keep recovered changes.',5000)
 
     def restore_workspace(self):
         geometry=self.settings.value('window/geometry')
@@ -1192,12 +1308,13 @@ class Editor(QMainWindow):
         self.settings.setValue('window/geometry',self.saveGeometry())
         self.settings.setValue('window/state',self.saveState())
         if not self.dirty and self.canvas.floating is None:
-            self.autosave_path().unlink(missing_ok=True)
+            self.recovery.discard_token(self.recovery.token_for(
+                self.file_path, self._recovery_session))
         super().closeEvent(event)
 
     def show_shortcuts(self):
         QMessageBox.information(self,'Keyboard shortcuts',
-          'Tools: B pencil, E eraser, F bucket, I eyedropper, L line, R rectangle, '
+          'Tools: B pencil, D 2-color dither, E eraser, F bucket, I eyedropper, L line, R rectangle, '
           'O ellipse, M selection, V move, H pan.\n\n'
           'Ctrl+D duplicate selected frames · Ctrl+Shift+D linked exposures · Ctrl+Alt+H linked holds.\n'
           'Ctrl/Shift-click multiple timeline frames · Ctrl+Alt+C/V copy/paste frame blocks.\n'
