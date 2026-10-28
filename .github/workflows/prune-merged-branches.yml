@@ -1,0 +1,51 @@
+name: Prune merged sprint branches
+
+# Runs in GitHub, not on the user's PC. It removes only unprotected heads
+# whose CURRENT SHA matches the original head of a merged, same-repo PR.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove only provably merged branches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const fullName = `${owner}/${repo}`;
+            const { data: metadata } = await github.rest.repos.get({ owner, repo });
+            const main = metadata.default_branch;
+            const branches = await github.paginate(github.rest.repos.listBranches, { owner, repo, per_page: 100 });
+            const prs = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'closed', per_page: 100 });
+            let removed = 0;
+            for (const branch of branches) {
+              if (branch.name === main || branch.protected) continue;
+              if (!/^(feat|fix|chore|docs)\//.test(branch.name)) continue;
+              // GitHub's squash merges have different SHAs on main, so merge
+              // ancestry alone is not reliable. Compare the exact PR head.
+              const verified = prs.some(pr =>
+                pr.merged_at &&
+                pr.base.ref === main &&
+                pr.head.repo?.full_name === fullName &&
+                pr.head.ref === branch.name &&
+                pr.head.sha === branch.commit.sha
+              );
+              if (!verified) continue;
+              core.info(`Removing verified merged branch: ${branch.name} (${branch.commit.sha})`);
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` });
+                removed++;
+              } catch (err) {
+                // Fail visibly, rather than claim the repository was cleaned.
+                core.setFailed(`Could not delete ${branch.name}: ${err.message}`);
+              }
+            }
+            core.info(`Branch hygiene complete. Removed ${removed} merged branch(es); unmerged branches untouched.`);

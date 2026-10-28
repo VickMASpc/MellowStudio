@@ -145,10 +145,18 @@ The v0.2.1 history engine uses deduplicated compressed whole-document snapshots 
 
 Full professional feature matrix, architecture, workflow goals, and fast development cycle: **`docs/DEVELOPMENT_PLAN.md`**.
 
+## Repair or update your Git checkout (Windows)
+
+There is **one canonical branch**, `main`. After a PR is merged, GitHub automatically removes its obsolete remote feature branch only when the exact branch head matches the merged PR. No unmerged work is deleted. You do not need to manage sprint branches.
+
+From an up-to-date checkout, run `./dev.ps1 sync` (PowerShell) to safely fetch/prune deleted remote branches and fast-forward `main`. It preserves the shared `.venv`, all local edits, independent branches, and commits. If your copy predates the `sync` command, bootstrap with `git fetch --prune origin`, `git switch main`, then `git pull --ff-only origin main` once. Future runs use the single `./dev.ps1 sync` command.
+
+The updater **never resets or stashes your work**. If Git reports local changes, a different remote, an authentication/network error, or a diverged `main`, it stops and explains why. The GitHub cleanup cannot reach or modify your PC automatically.
+
 ## GitHub development workflow
 
 This repository is the **single source of truth** from v0.2.0 forward. Do not unpack new versions into new folders. Make small feature branches, run tests, open PRs, and merge once green. Avoid committing generated `.venv`, caches, packaging output, or autosaves.
 
 On Windows, `.\dev.ps1 run` launches the editor, `.\dev.ps1 test` runs the tests, `.\dev.ps1 build` makes an EXE and `.\dev.ps1 cli ...` accesses headless batch commands. All commands reuse **one root `.venv`**. Direct launch `start_windows.bat` works too. To force-recreate that one environment, delete `.venv` once and run setup again.
 
-CI runs Python engine tests on Ubuntu and GUI smoke tests on Windows; the merged 0.2.1 baseline passed. **For every code PR, update both `docs/DEVELOPMENT_PLAN.md` and `docs/SPRINT_LOG.md`** or the new sprint-documentation CI gate will fail. See [`docs/REPOSITORY_WORKFLOW.md`](docs/REPOSITORY_WORKFLOW.md). Next milestone: [Sprint 0.2.2 / Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3).
+CI runs Python engine tests on Ubuntu and GUI smoke tests on Windows; the merged 0.2.1 baseline passed. **For every code PR, update both `docs/DEVELOPMENT_PLAN.md` and `docs/SPRINT_LOG.md`** or the new sprint-documentation CI gate will fail. See [`docs/REPOSITORY_WORKFLOW.md`](docs/REPOSITORY_WORKFLOW.md). Remaining targets: [extended Reference Lab registration / Issue #7](https://github.com/VickMASpc/MellowStudio/issues/7) and [reliability / Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3).

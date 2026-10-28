@@ -41,6 +41,17 @@ jobs:
           cache: pip
       - name: Install application and test dependencies
         run: python -m pip install -e ".[test]"
+      - name: Verify merged-branch cleanup never deletes unmerged work
+        if: runner.os == 'Linux' && matrix.python == '3.11'
+        run: node scripts/test_branch_prune.js
+      - name: Parse Windows safe-sync script
+        if: runner.os == 'Windows' && matrix.python == '3.11'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'scripts/sync_windows.ps1'), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Out-String | Write-Error; exit 1 }
       - name: Compile all modules
         run: python -m compileall -q mellowstudio
       - name: Run headless engine tests (Linux)

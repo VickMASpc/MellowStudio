@@ -1,6 +1,6 @@
 # Mellow Studio — product specification & development cycle
 
-**Canonical roadmap:** this file in GitHub. **Current merged baseline:** v0.2.2 (PR #5); **active next sprint:** v0.2.3 Reference Lab and image registration ([Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3)). Keep the [sprint log](SPRINT_LOG.md) synchronized with each implementation PR. Future phase targets below are not claims of verified functionality.
+**Canonical roadmap:** this file in GitHub. **Current merged baseline:** v0.2.3 Reference Lab ([PR #6](https://github.com/VickMASpc/MellowStudio/pull/6)); **remaining reference registration:** [Issue #7](https://github.com/VickMASpc/MellowStudio/issues/7). Reliability work in [Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3) also remains open. Keep the [sprint log](SPRINT_LOG.md) synchronized with each implementation PR. Future phase targets below are not claims of verified functionality.
 
 ## A. The problem worth solving
 
@@ -233,3 +233,11 @@ Target test machine: Ryzen 7 5700U with integrated graphics and 16 GB RAM. **Tar
 ## K. Active code verification addendum (Sprint 0.2.2)
 
 The editor now has **actual in-progress changes**, not just planning: a foreground/background Bayer dither brush (`D`, adjustable 0–16 mix); per-project recovery snapshots/chooser and legacy support; validating atomic project saves with pre-replacement integrity check and `.bak` preservation; frame/onion/thumbnail QImage caching with linked-cel invalidation; and a repeatable headless benchmark script. The change does **not** imply that region-delta undo, 12-frame per-source registration, 5700U performance validation or the 60-second Windows manual acceptance gate are complete. See [SPRINT_LOG.md](SPRINT_LOG.md) and [`PERFORMANCE_BASELINE_SANDBOX.json`](PERFORMANCE_BASELINE_SANDBOX.json) for evidence and limitations. On every next implementation PR update both documents with measured results, new failures and newly accepted or deferred tasks.
+
+## M. Git branch and local-checkout hygiene (2026-10-28)
+
+- `main` is the authoritative, CI-tested integration branch; feature PRs are squash-merged once validated. A squash merge does **not** leave the feature tip as an ancestor of `main`, so plain `git branch -d` is insufficient for cleaning those particular local branches.
+- After each push to `main`, GitHub Actions (`prune-merged-branches.yml`) enumerates branches and removes a nonprotected `feat/`, `fix/`, `chore/` or `docs/` ref **only when** an already-merged PR to `main` in this very repository has an identical head branch name **and commit SHA**. Branches with unmerged work or new post-merge commits are preserved. The workflow tests its decision rule offline.
+- Windows checkout maintenance: `./dev.ps1 sync` fetches/prunes, refuses an unrelated remote, refuses to pull over local edits, switches to `main`, fast-forward-only pulls, and optionally deletes a local branch only when a merged PR's exact historical head SHA confirms it safe. No hard reset, force pull, or recreated `.venv`.
+- A GitHub-side deletion does not alter a person's local repository until their next fetch. Manual or automated Git maintenance cannot repair credential, DNS, proxy, or non-fast-forward problems on a machine without examining that machine. The script reports those rather than rewriting history.
+- Repository housekeeping changes still update this document and `SPRINT_LOG.md` as required by CI.
