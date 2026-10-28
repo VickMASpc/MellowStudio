@@ -390,7 +390,7 @@ class Editor(QMainWindow):
         self.brush_spin.valueChanged.connect(lambda v:setattr(self,'brush_size',v))
         size_row.addWidget(self.brush_slider)
         size_row.addWidget(self.brush_spin)
-        bar.addWidget(self.brush_options)
+        self.brush_options_action=bar.addWidget(self.brush_options)
 
         self.dither_options=QWidget()
         mix_row=QHBoxLayout(self.dither_options)
@@ -410,7 +410,7 @@ class Editor(QMainWindow):
         self.dither_spin.valueChanged.connect(lambda v:setattr(self,'dither_level',v))
         mix_row.addWidget(self.dither_slider)
         mix_row.addWidget(self.dither_spin)
-        bar.addWidget(self.dither_options)
+        self.dither_options_action=bar.addWidget(self.dither_options)
         self.symmetry_options=QWidget()
         sym=QHBoxLayout(self.symmetry_options)
         sym.setContentsMargins(0,0,0,0)
@@ -419,14 +419,14 @@ class Editor(QMainWindow):
         sym.addWidget(self.sym_x_box);sym.addWidget(self.sym_y_box)
         self.sym_x_box.toggled.connect(lambda v:setattr(self.canvas,'sym_x',v))
         self.sym_y_box.toggled.connect(lambda v:setattr(self.canvas,'sym_y',v))
-        bar.addWidget(self.symmetry_options)
+        self.symmetry_options_action=bar.addWidget(self.symmetry_options)
         self.shape_options=QWidget()
         shape=QHBoxLayout(self.shape_options)
         shape.setContentsMargins(0,0,0,0)
         self.fill_box=QCheckBox('Filled shape')
         self.fill_box.toggled.connect(lambda v:setattr(self.canvas,'filled_shapes',v))
         shape.addWidget(self.fill_box)
-        bar.addWidget(self.shape_options)
+        self.shape_options_action=bar.addWidget(self.shape_options)
         self.bucket_options=QWidget()
         fill=QHBoxLayout(self.bucket_options)
         fill.setContentsMargins(0,0,0,0)
@@ -434,7 +434,7 @@ class Editor(QMainWindow):
         self.contiguous_box.setChecked(True)
         self.contiguous_box.toggled.connect(lambda v:setattr(self,'contiguous',v))
         fill.addWidget(self.contiguous_box)
-        bar.addWidget(self.bucket_options)
+        self.bucket_options_action=bar.addWidget(self.bucket_options)
 
         bar.addSeparator()
         self.primary_chip=QToolButton()
@@ -460,11 +460,15 @@ class Editor(QMainWindow):
         self.tool_title.setText(title.upper())
         self.tool_hint.setText(hint)
         painting=self.tool in ('pencil','eraser','dither')
-        self.brush_options.setVisible(painting)
-        self.dither_options.setVisible(self.tool=='dither')
-        self.symmetry_options.setVisible(painting)
-        self.shape_options.setVisible(self.tool in ('rectangle','ellipse'))
-        self.bucket_options.setVisible(self.tool=='bucket')
+        # Embedded toolbar widgets are managed by their QWidgetAction.
+        # Hiding the widget alone is undone when Qt lays out the toolbar.
+        for action,visible in (
+            (self.brush_options_action,painting),
+            (self.dither_options_action,self.tool=='dither'),
+            (self.symmetry_options_action,painting),
+            (self.shape_options_action,self.tool in ('rectangle','ellipse')),
+            (self.bucket_options_action,self.tool=='bucket')):
+            action.setVisible(visible)
 
     def swap_colors(self):
         self.foreground,self.secondary=self.secondary,self.foreground
