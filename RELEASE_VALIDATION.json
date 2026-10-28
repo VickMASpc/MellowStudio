@@ -1,0 +1,23 @@
+{
+  "product": "Mellow Studio",
+  "version": "0.2.0",
+  "release_type": "Python source milestone",
+  "verified": {
+    "headless_pytest": "27 passed",
+    "qt_smoke": "1 skipped (PySide6 unavailable)",
+    "headless_cli": "success on 6-frame linked demo",
+    "measured_mellow_grid": "268x360 => 41x55 candidate",
+    "source_compilation": "Python compileall successful"
+  },
+  "not_verified": [
+    "Windows Qt runtime launch",
+    "Windows EXE build",
+    "real GUI input workflows"
+  ],
+  "known_remaining": [
+    "Compressed history",
+    "floating selections",
+    "timeline drag reorder",
+    "professional color/palette suites"
+  ]
+}

@@ -1,0 +1,22 @@
+# A single, shared environment for this checkout. Never commit it.
+.venv/
+# Python and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+# Packaging
+build/
+dist/
+*.egg-info/
+*.spec
+# Personal workspace, temporary export files
+.vscode/
+.idea/
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
