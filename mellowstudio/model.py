@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from io import BytesIO
 import json
+import zlib
+from struct import pack, unpack_from
 from pathlib import Path
 from uuid import uuid4
 from zipfile import ZipFile, ZIP_DEFLATED
@@ -107,13 +109,15 @@ class Document:
     def layer(self) -> Layer:
         return next(k for k in self.layers if k.id == self.active_layer)
 
-    def composite(self, frame_index: int | None = None) -> Image.Image:
+    def composite(self, frame_index: int | None = None, cel_override: Image.Image | None = None) -> Image.Image:
         frame = self.frames[self.active_frame if frame_index is None else frame_index]
         out = blank(self.width, self.height)
         for layer in self.layers:
             if not layer.visible or layer.opacity == 0:
                 continue
-            im = frame.cels[layer.id]
+            im = (cel_override if cel_override is not None and layer.id == self.active_layer
+                  and (frame_index is None or frame_index == self.active_frame)
+                  else frame.cels[layer.id])
             if layer.opacity == 255:
                 out.alpha_composite(im)
             else:
@@ -227,6 +231,24 @@ class Document:
                     selected.remove(i); selected.add(i+1)
         self.active_frame = min(selected)
         return sorted(selected)
+
+    def reorder_frames(self, indices, insertion: int) -> list[int]:
+        """Drag a possibly discontiguous frame selection to an insertion boundary.
+
+        ``insertion`` is measured in the *original* sequence (0..frame_count).
+        Frame objects, duration and linked-cel aliases are preserved by identity.
+        """
+        chosen = self._frame_indices(indices)
+        if not 0 <= insertion <= len(self.frames):
+            raise IndexError('Invalid timeline insertion boundary.')
+        selected = set(chosen)
+        old_active = self.frames[self.active_frame]
+        moved = [self.frames[i] for i in chosen]
+        remain = [frame for i, frame in enumerate(self.frames) if i not in selected]
+        target = insertion - sum(i < insertion for i in chosen)
+        self.frames[:] = remain[:target] + moved + remain[target:]
+        self.active_frame = next(i for i, f in enumerate(self.frames) if f is old_active)
+        return list(range(target, target + len(moved)))
 
     def set_frame_durations(self, indices, milliseconds: int) -> None:
         if not (16 <= milliseconds <= 10000):
@@ -457,13 +479,124 @@ def move_selection(img: Image.Image, rect: tuple[int, int, int, int], delta: tup
     img.alpha_composite(overlay)
 
 
+@dataclass
+class FloatingSelection:
+    """A non-destructive pixel fragment staged above the active cel.
+
+    Preview operations never touch the document. The editor commits the result
+    as one atomic undoable cel replacement or cancels it without side effects.
+    Pixel positions may be outside the canvas; clipping occurs at render time.
+    """
+    base: Image.Image
+    pixels: Image.Image
+    x: int
+    y: int
+
+    @classmethod
+    def from_cel(cls, cel: Image.Image, rect: tuple[int, int, int, int]) -> FloatingSelection:
+        x0, y0, x1, y1 = rect
+        if x0 >= x1 or y0 >= y1 or not (0 <= x0 < x1 <= cel.width and
+                                        0 <= y0 < y1 <= cel.height):
+            raise ValueError('Selection must be inside the sprite and nonempty.')
+        pixels = cel.crop(rect)
+        base = cel.copy()
+        ImageDraw.Draw(base).rectangle((x0, y0, x1-1, y1-1), fill=TRANSPARENT)
+        return cls(base, pixels, x0, y0)
+
+    @classmethod
+    def pasted(cls, cel: Image.Image, pixels: Image.Image, position: tuple[int, int]) -> FloatingSelection:
+        if pixels.width < 1 or pixels.height < 1:
+            raise ValueError('Cannot paste an empty selection.')
+        return cls(cel.copy(), pixels.convert('RGBA').copy(), *position)
+
+    @property
+    def rect(self) -> tuple[int, int, int, int]:
+        return self.x, self.y, self.x + self.pixels.width, self.y + self.pixels.height
+
+    def move_to(self, x: int, y: int) -> None:
+        self.x, self.y = int(x), int(y)
+
+    def shift(self, dx: int, dy: int) -> None:
+        self.move_to(self.x + dx, self.y + dy)
+
+    def render(self) -> Image.Image:
+        output = self.base.copy()
+        # alpha_composite(dest=...) clips negative/off-canvas offsets correctly.
+        output.alpha_composite(self.pixels, (self.x, self.y))
+        return output
+
+
+def _compressed_history_snapshot(doc: Document) -> bytes:
+    """Compact in-memory snapshot. Each unique cel is zlib-compressed once.
+
+    This format never goes to disk, is not pickle, and keeps linked exposure
+    identity on restoration. The 4-byte JSON header length precedes the header;
+    images are then stored in reference order as [length, compressed RGBA].
+    """
+    seen = {}
+    buffers = []
+    frames = []
+    for frame in doc.frames:
+        aliases = {}
+        for layer in doc.layers:
+            image = frame.cels[layer.id]
+            key = (layer.id, id(image))
+            if key not in seen:
+                seen[key] = len(buffers)
+                buffers.append(zlib.compress(image.tobytes(), level=1))
+            aliases[layer.id] = seen[key]
+        frames.append({'duration_ms': frame.duration_ms, 'cels': aliases})
+    header = json.dumps({
+        'width': doc.width, 'height': doc.height, 'name': doc.name,
+        'layers': [vars(x) for x in doc.layers], 'frames': frames,
+        'active_frame': doc.active_frame, 'active_layer': doc.active_layer,
+        'palette': doc.palette, 'guides': doc.guides,
+    }, separators=(',', ':')).encode('utf-8')
+    return b''.join([pack('<I', len(header)), header] +
+                    [pack('<I', len(buf)) + buf for buf in buffers])
+
+
+def _restore_history_snapshot(snapshot: bytes) -> Document:
+    (length,) = unpack_from('<I', snapshot, 0)
+    header = json.loads(snapshot[4:4+length])
+    position = 4 + length
+    ids = {alias for f in header['frames'] for alias in f['cels'].values()}
+    images = []
+    for _ in range(len(ids)):
+        (size,) = unpack_from('<I', snapshot, position)
+        position += 4
+        rgba = zlib.decompress(snapshot[position:position+size])
+        position += size
+        images.append(Image.frombytes('RGBA', (header['width'], header['height']), rgba))
+    frames = [Frame(f['duration_ms'], {layer_id: images[alias]
+                                       for layer_id, alias in f['cels'].items()})
+              for f in header['frames']]
+    return Document(header['width'], header['height'], header['name'],
+                    [Layer(**layer) for layer in header['layers']], frames,
+                    header['active_frame'], header['active_layer'], header['palette'],
+                    header['guides'])
+
+
 class History:
-    """Bounded document snapshots, one per completed UI action. Delta history is next milestone."""
-    def __init__(self, limit: int = 32):
+    """Memory-bounded, compressed undo/redo preserving linked frame exposures.
+
+    User actions are still atomic snapshots; compressed unique cel buffers avoid
+    the unbounded multi-frame RGBA retention of the original implementation.
+    """
+    def __init__(self, limit: int = 128, max_bytes: int = 128 * 1024 * 1024):
         self.limit = limit
-        self.undo: list[Document] = []
-        self.redo: list[Document] = []
+        self.max_bytes = max_bytes
+        self.undo: list[bytes] = []
+        self.redo: list[bytes] = []
         self.pending: Document | None = None
+
+    @property
+    def memory_bytes(self) -> int:
+        return sum(map(len, self.undo)) + sum(map(len, self.redo))
+
+    def _trim(self, history: list[bytes]) -> None:
+        while len(history) > self.limit or (self.memory_bytes > self.max_bytes and len(history) > 1):
+            history.pop(0)
 
     def begin(self, doc: Document) -> None:
         if self.pending is None:
@@ -472,13 +605,11 @@ class History:
     def commit(self, doc: Document) -> bool:
         before = self.pending
         self.pending = None
-        if before is None:
+        if before is None or documents_equal(before, doc):
             return False
-        if documents_equal(before, doc):
-            return False
-        self.undo.append(before)
-        del self.undo[:-self.limit]
+        self.undo.append(_compressed_history_snapshot(before))
         self.redo.clear()
+        self._trim(self.undo)
         return True
 
     def cancel(self) -> None:
@@ -487,14 +618,18 @@ class History:
     def back(self, doc: Document) -> Document:
         if not self.undo:
             return doc
-        self.redo.append(doc.copy())
-        return self.undo.pop()
+        self.redo.append(_compressed_history_snapshot(doc))
+        result = _restore_history_snapshot(self.undo.pop())
+        self._trim(self.redo)
+        return result
 
     def forward(self, doc: Document) -> Document:
         if not self.redo:
             return doc
-        self.undo.append(doc.copy())
-        return self.redo.pop()
+        self.undo.append(_compressed_history_snapshot(doc))
+        result = _restore_history_snapshot(self.redo.pop())
+        self._trim(self.undo)
+        return result
 
 
 def documents_equal(a: Document, b: Document) -> bool:

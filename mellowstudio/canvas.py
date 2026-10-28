@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, Signal, QPoint, QRect, QSize
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QWidget, QAbstractScrollArea
 
-from .model import draw_stroke, draw_shape, bucket_fill, move_selection
+from .model import draw_stroke, draw_shape, bucket_fill, FloatingSelection
 
 
 def qimage_from_pil(image: Image.Image) -> QImage:
@@ -37,6 +37,8 @@ class PixelCanvas(QWidget):
         self.sym_y = False
         self.filled_shapes = False
         self.selection: tuple[int, int, int, int] | None = None
+        self.floating: FloatingSelection | None = None
+        self._floating_drag_origin = (0, 0)
         self.dragging = False
         self.drag_origin = (0, 0)
         self.last_point = (0, 0)
@@ -92,7 +94,9 @@ class PixelCanvas(QWidget):
                     p.setOpacity(opacity)
                     p.drawImage(QRect(0, 0, self.width(), self.height()), image)
             p.setOpacity(1.0)
-        p.drawImage(QRect(0, 0, self.width(), self.height()), qimage_from_pil(d.composite()))
+        preview_cel = self.floating.render() if self.floating is not None else None
+        p.drawImage(QRect(0, 0, self.width(), self.height()),
+                    qimage_from_pil(d.composite(cel_override=preview_cel)))
         if self.show_grid and s >= 6:
             p.setPen(QPen(QColor(13, 23, 37, 100), 1))
             for x in range(d.width + 1):
@@ -108,8 +112,9 @@ class PixelCanvas(QWidget):
                 p.setPen(QPen(QColor('#f6d37b'), 2))
                 for x, y in guide['points']:
                     p.drawRect(x*s+1, y*s+1, max(1, s-2), max(1, s-2))
-        if self.selection:
-            x0, y0, x1, y1 = self.selection
+        outline = self.floating.rect if self.floating is not None else self.selection
+        if outline:
+            x0, y0, x1, y1 = outline
             p.setPen(QPen(QColor('#ffe18e'), 2, Qt.PenStyle.DashLine))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRect(QRect(x0*s, y0*s, (x1-x0)*s, (y1-y0)*s))
@@ -137,6 +142,7 @@ class PixelCanvas(QWidget):
             self.sampled.emit(tuple(self.doc.composite().getpixel(point)))
             return
         if tool == 'marquee':
+            self.editor.commit_floating()
             self.dragging = True
             self.drag_origin = point
             self.selection = (*point, point[0]+1, point[1]+1)
@@ -145,6 +151,20 @@ class PixelCanvas(QWidget):
         if self.doc.layer.locked or not self.doc.layer.visible:
             self.editor.statusBar().showMessage('Unlock/show this layer to paint.', 2800)
             return
+        if tool == 'move':
+            if self.floating is None and self.selection is not None:
+                self.floating = FloatingSelection.from_cel(self.doc.cel, self.selection)
+            if self.floating is None:
+                return
+            self.dragging = True
+            self.drag_origin = point
+            self.last_point = point
+            self._floating_drag_origin = (self.floating.x, self.floating.y)
+            self.update()
+            return
+        if self.floating is not None:
+            self.editor.commit_floating()
+            self.selection = None
         self.editor.history.begin(self.doc)
         self.dragging = True
         self.drag_origin = point
@@ -153,10 +173,6 @@ class PixelCanvas(QWidget):
         self._tool_override = tool
         if event.button() == Qt.MouseButton.RightButton:
             self._tool_override = 'eraser' if tool == 'eraser' else 'secondary-pencil'
-        if tool == 'move' and self.selection is None:
-            self.dragging = False
-            self.editor.history.cancel()
-            return
         self._apply(point)
 
     def _paint_color(self):
@@ -176,10 +192,6 @@ class PixelCanvas(QWidget):
         elif tool in ('line', 'rectangle', 'ellipse'):
             img.paste(self.before_cel)
             draw_shape(img, tool, self.drag_origin, point, color, self.filled_shapes)
-        elif tool == 'move' and self.selection:
-            img.paste(self.before_cel)
-            delta = (point[0]-self.drag_origin[0], point[1]-self.drag_origin[1])
-            move_selection(img, self.selection, delta)
         self.last_point = point
         self.update()
         self.changed.emit()
@@ -201,6 +213,10 @@ class PixelCanvas(QWidget):
             y0, y1 = sorted([self.drag_origin[1], pt[1]])
             self.selection = (x0, y0, x1+1, y1+1)
             self.update()
+        elif self.editor.tool == 'move' and self.floating is not None:
+            self.floating.move_to(self._floating_drag_origin[0] + pt[0] - self.drag_origin[0],
+                                  self._floating_drag_origin[1] + pt[1] - self.drag_origin[1])
+            self.update()
         elif self._tool_override != 'bucket':
             self._apply(pt)
 
@@ -212,12 +228,7 @@ class PixelCanvas(QWidget):
         if not self.dragging:
             return
         self.dragging = False
-        if self.editor.tool != 'marquee':
-            if self._tool_override == 'move' and self.selection:
-                dx = self.last_point[0] - self.drag_origin[0]
-                dy = self.last_point[1] - self.drag_origin[1]
-                x0,y0,x1,y1 = self.selection
-                self.selection = (x0+dx,y0+dy,x1+dx,y1+dy)
+        if self.editor.tool not in ('marquee', 'move'):
             self.editor.finish_edit()
         self.before_cel = None
         self._tool_override = None

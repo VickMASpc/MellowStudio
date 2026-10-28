@@ -34,3 +34,34 @@ def test_qt_window_draw_duplicate_undo(tmp_path, monkeypatch):
     window.file_path=tmp_path/'smoke.mellowzip'
     assert window.save_project()
     window.close()
+
+
+def test_qt_floating_commit_cancel_and_frame_reorder(tmp_path, monkeypatch):
+    from mellowstudio.model import Document
+    monkeypatch.setenv('XDG_DATA_HOME', str(tmp_path/'data'))
+    monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path/'config'))
+    app=QApplication.instance() or QApplication([])
+    window=Editor()
+    window.set_document(Document(8,8))
+    window.show(); app.processEvents()
+    window.doc.cel.putpixel((1,1),(255,0,0,255))
+    window.canvas.selection=(1,1,2,2)
+    window.nudge_selection(1,0)
+    assert window.canvas.floating is not None
+    assert window.doc.cel.getpixel((1,1))==(255,0,0,255)
+    window.cancel_floating()
+    assert window.doc.cel.getpixel((1,1))==(255,0,0,255)
+    window.canvas.selection=(1,1,2,2)
+    window.nudge_selection(1,0)
+    window.commit_floating()
+    assert window.doc.cel.getpixel((1,1))==(0,0,0,0)
+    assert window.doc.cel.getpixel((2,1))==(255,0,0,255)
+    window.undo()
+    assert window.doc.cel.getpixel((1,1))==(255,0,0,255)
+    window.duplicate_frame()
+    window.add_frame()
+    window.select_frame_indices([0])
+    window.reorder_selected_frames(3)
+    assert window.doc.active_frame == 1  # active frame object preserved
+    assert len(window.doc.frames)==3
+    window.close()
