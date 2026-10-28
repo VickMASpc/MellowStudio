@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QGridLayout, QToolBar, QToolButton, QLabel, QPushButton, QListWidget,
     QListWidgetItem, QAbstractItemView, QSpinBox, QCheckBox, QInputDialog, QFileDialog,
     QMessageBox, QColorDialog, QFrame, QLineEdit, QDialog, QDialogButtonBox,
-    QFormLayout, QSlider, QMenu, QScrollBar
+    QFormLayout, QSlider, QMenu, QScrollBar, QSizePolicy
 )
 
 from .model import (Document, History, project_load, project_save, blank,
@@ -26,9 +26,15 @@ from .canvas import PixelCanvas, qimage_from_pil, pil_from_qimage
 from .importer import ImportDialog
 from .reference_ui import ReferenceWorkbench
 from .reference import suggest_translation, calibration_dict
+from .welcome import WelcomeDialog
+from .recent import tidy_recent
+from .export_ui import ExportDialog
+from .tool_icons import tool_icon
+from .studio_theme import STUDIO_QSS
+from .cli import export as export_native
 
 APP_TITLE = 'Mellow Studio'
-VERSION = '0.2.3-dev'
+VERSION = '0.2.4-dev'
 
 
 class Swatch(QPushButton):
@@ -87,25 +93,53 @@ class FrameTimeline(QListWidget):
 
 
 class NewDocumentDialog(QDialog):
+    """Friendly canvas creation; size presets are suggestions, not constraints."""
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle('New pixel-art document')
-        form=QFormLayout(self)
+        self.setWindowTitle('Create pixel art · Mellow Studio')
+        self.setMinimumWidth(500)
+        root=QVBoxLayout(self)
+        root.setContentsMargins(24,24,24,22)
+        root.setSpacing(13)
+        title=QLabel('Your next little world.')
+        title.setObjectName('ExportTitle')
+        description=QLabel('Choose a starting size. Every square is one editable pixel.')
+        description.setObjectName('ExportSubtitle')
+        root.addWidget(title)
+        root.addWidget(description)
+        form=QFormLayout()
+        form.setSpacing(10)
         self.name=QLineEdit('Untitled')
-        self.w=QSpinBox();self.w.setRange(1, 2048);self.w.setValue(64)
-        self.h=QSpinBox();self.h.setRange(1, 2048);self.h.setValue(64)
+        self.name.setPlaceholderText('Name your project')
+        self.w=QSpinBox();self.w.setRange(1,2048);self.w.setValue(64)
+        self.h=QSpinBox();self.h.setRange(1,2048);self.h.setValue(64)
+        self.w.setSuffix(' px');self.h.setSuffix(' px')
         form.addRow('Project name',self.name)
-        form.addRow('Width (logical pixels)',self.w)
-        form.addRow('Height (logical pixels)',self.h)
-        presets=QHBoxLayout()
-        for width,height in [(16,16),(32,32),(64,64),(128,128),(256,256),(41,55)]:
-            b=QPushButton(f'{width}×{height}')
-            b.clicked.connect(lambda _,x=width,y=height: (self.w.setValue(x),self.h.setValue(y)))
-            presets.addWidget(b)
-        form.addRow('Presets',presets)
-        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept);buttons.rejected.connect(self.reject)
-        form.addRow(buttons)
+        form.addRow('Width',self.w)
+        form.addRow('Height',self.h)
+        root.addLayout(form)
+        preset_label=QLabel('QUICK START SIZES')
+        preset_label.setObjectName('SectionEyebrow')
+        root.addWidget(preset_label)
+        presets=QGridLayout()
+        presets.setSpacing(8)
+        for i,(label,width,height) in enumerate([
+            ('Icon  16×16',16,16),('Tiny sprite  32×32',32,32),
+            ('Character  64×64',64,64),('Game sprite  128×128',128,128),
+            ('Mellow  41×55',41,55),('Large art  256×256',256,256),
+        ]):
+            button=QPushButton(label)
+            button.setMinimumHeight(37)
+            button.clicked.connect(lambda _,x=width,y=height:(self.w.setValue(x),self.h.setValue(y)))
+            presets.addWidget(button,i//3,i%3)
+        root.addLayout(presets)
+        root.addSpacing(5)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText('Create canvas')
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setObjectName('PrimaryAction')
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
 
 
 class Editor(QMainWindow):
@@ -132,6 +166,8 @@ class Editor(QMainWindow):
         self.dither_level=8
         self.contiguous=True
         self.preview_playing=False
+        self._focus_mode=False
+        self._dock_visibility_before_focus={}
         self._refreshing=False
         self.copied: tuple[Image.Image, int, int] | None=None
         self.frames_clipboard = []
@@ -145,7 +181,8 @@ class Editor(QMainWindow):
         self.connect_canvas()
         self.refresh_all()
         self.restore_workspace()
-        self.recover_autosave()
+        # Recovery remains available in the File menu; avoid a startup modal
+        # competing with the intentional first-run welcome experience.
         self.autosave_timer=QTimer(self)
         self.autosave_timer.setInterval(120000)
         self.autosave_timer.timeout.connect(self.autosave)
@@ -170,6 +207,8 @@ class Editor(QMainWindow):
         self.build_preview()
         self.build_reference_dock()
         self.build_studio_bar()
+        self.build_tool_options()
+        self.set_tool('pencil')
         self.status=QLabel('Pixel (–, –)')
         self.statusBar().addPermanentWidget(self.status)
         self.zoom_label=QLabel('12×')
@@ -196,6 +235,8 @@ class Editor(QMainWindow):
     def build_menus(self):
         bar=self.menuBar()
         file=bar.addMenu('&File')
+        self.add_action(file,'Welcome / Start…',self.show_welcome,'Ctrl+Shift+H')
+        file.addSeparator()
         self.add_action(file,'New project…',self.new_project,'Ctrl+N')
         self.add_action(file,'Open project…',self.open_project,'Ctrl+O')
         self.add_action(file,'Save project',self.save_project,'Ctrl+S')
@@ -209,7 +250,9 @@ class Editor(QMainWindow):
         self.add_action(file,'Import spritesheet as frames…',self.import_spritesheet)
         self.add_action(file,'Import PNG as new project…',self.import_raw_png)
         file.addSeparator()
-        self.add_action(file,'Export current frame PNG…',self.export_png,'Ctrl+E')
+        self.add_action(file,'Export artwork…',self.quick_export,'Ctrl+E')
+        file.addSeparator()
+        self.add_action(file,'Export current frame PNG…',self.export_png)
         self.add_action(file,'Export spritesheet PNG…',self.export_sheet)
         self.add_action(file,'Export animated GIF…',self.export_gif)
         self.add_action(file,'Export animation frames folder…',self.export_frames)
@@ -265,6 +308,7 @@ class Editor(QMainWindow):
         self.add_action(view,'Zoom out',lambda:self.canvas.set_zoom(self.canvas.zoom-1),'Ctrl+-')
         self.add_action(view,'Zoom actual logical pixels',lambda:self.canvas.set_zoom(1),'Ctrl+1')
         self.add_action(view,'Zoom to fit',self.zoom_fit,'Ctrl+0')
+        self.add_action(view,'Focus canvas / restore panels',self.toggle_focus_mode,'F11')
         self.add_action(view,'Reset panel layout',self.reset_layout)
         self.add_action(view,'Reference Lab…',self.open_reference_lab)
 
@@ -273,57 +317,158 @@ class Editor(QMainWindow):
         self.add_action(help,'About Mellow Studio',self.about)
 
     def build_tools(self):
+        """Tools only; irrelevant brush settings live in the contextual inspector."""
         tb=QToolBar('Drawing tools',self)
         tb.setObjectName('DrawingTools')
-        tb.setMovable(True)
-        tb.setIconSize(QSize(20,20))
+        tb.setMovable(False)
+        tb.setIconSize(QSize(25,25))
         self.addToolBar(Qt.ToolBarArea.LeftToolBarArea,tb)
         self.tool_buttons={}
-        entries=[('pencil','Pencil','B'),('dither','2-color Dither','D'),('eraser','Eraser','E'),
-                 ('bucket','Fill','F'),('picker','Eyedropper','I'),
-                 ('line','Line','L'),('rectangle','Rectangle','R'),
-                 ('ellipse','Ellipse','O'),('marquee','Marquee','M'),
-                 ('move','Move selection','V'),('pan','Pan','H')]
-        glyphs={'pencil':'✎','dither':'▦','eraser':'⌫','bucket':'▥','picker':'◉','line':'╱',
-                'rectangle':'▭','ellipse':'◯','marquee':'▧','move':'✥','pan':'✋'}
-        for tool, desc, key in entries:
-            b=QToolButton();b.setText(glyphs[tool])
-            b.setFixedSize(42,41)
-            b.setToolTip(f'{desc} ({key})')
+        self.tool_descriptions={
+            'pencil':('Pencil','Paint precise logical pixels'),
+            'dither':('Dither','Blend two colors in a pixel-perfect pattern'),
+            'eraser':('Eraser','Erase pixels to transparency'),
+            'bucket':('Fill','Fill a region or every matching color'),
+            'picker':('Eyedropper','Sample a color directly from the canvas'),
+            'line':('Line','Drag to draw a crisp line'),
+            'rectangle':('Rectangle','Draw an outline or filled rectangle'),
+            'ellipse':('Ellipse','Draw an outline or filled ellipse'),
+            'marquee':('Selection','Select a rectangular area'),
+            'move':('Move','Move selected pixels or an uncommitted paste'),
+            'pan':('Pan','Drag the canvas view'),
+        }
+        entries=[('pencil','B'),('dither','D'),('eraser','E'),('bucket','F'),
+                 ('picker','I'),('line','L'),('rectangle','R'),('ellipse','O'),
+                 ('marquee','M'),('move','V'),('pan','H')]
+        for i,(tool,key) in enumerate(entries):
+            if i in (5,8):tb.addSeparator()
+            title,hint=self.tool_descriptions[tool]
+            b=QToolButton()
+            b.setObjectName('ToolGlyph')
+            b.setIcon(tool_icon(tool))
+            b.setIconSize(QSize(25,25))
+            b.setFixedSize(44,44)
             b.setCheckable(True)
-            b.clicked.connect(lambda _, t=tool:self.set_tool(t))
+            b.setAccessibleName(title)
+            b.setToolTip(f'{title} ({key})\n{hint}')
+            b.clicked.connect(lambda _,t=tool:self.set_tool(t))
             tb.addWidget(b)
             self.tool_buttons[tool]=b
-        tb.addSeparator()
-        tb.addWidget(QLabel('Size'))
+        self.set_tool('pencil')
+
+    def build_tool_options(self):
+        """A tool-aware strip, not permanent settings clutter on the left."""
+        self.addToolBarBreak(Qt.ToolBarArea.TopToolBarArea)
+        bar=QToolBar('Tool options',self)
+        bar.setObjectName('ToolOptionsBar')
+        bar.setMovable(False)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea,bar)
+        self.tool_title=QLabel('PENCIL')
+        self.tool_title.setObjectName('ToolTitle')
+        self.tool_title.setMinimumWidth(80)
+        bar.addWidget(self.tool_title)
+        self.tool_hint=QLabel('Paint precise logical pixels')
+        self.tool_hint.setObjectName('ToolHint')
+        self.tool_hint.setMinimumWidth(185)
+        bar.addWidget(self.tool_hint)
+        bar.addSeparator()
+        self.brush_options=QWidget()
+        size_row=QHBoxLayout(self.brush_options)
+        size_row.setContentsMargins(0,0,0,0)
+        size_row.setSpacing(7)
+        size_row.addWidget(QLabel('Size'))
+        self.brush_slider=QSlider(Qt.Orientation.Horizontal)
+        self.brush_slider.setRange(1,32)
+        self.brush_slider.setFixedWidth(105)
+        self.brush_slider.setValue(self.brush_size)
         self.brush_spin=QSpinBox()
         self.brush_spin.setRange(1,32)
-        self.brush_spin.setValue(1)
+        self.brush_spin.setFixedWidth(60)
+        self.brush_spin.setValue(self.brush_size)
+        self.brush_slider.valueChanged.connect(self.brush_spin.setValue)
+        self.brush_spin.valueChanged.connect(self.brush_slider.setValue)
         self.brush_spin.valueChanged.connect(lambda v:setattr(self,'brush_size',v))
-        tb.addWidget(self.brush_spin)
-        tb.addWidget(QLabel('Mix'))
+        size_row.addWidget(self.brush_slider)
+        size_row.addWidget(self.brush_spin)
+        bar.addWidget(self.brush_options)
+
+        self.dither_options=QWidget()
+        mix_row=QHBoxLayout(self.dither_options)
+        mix_row.setContentsMargins(0,0,0,0)
+        mix_row.setSpacing(7)
+        mix_row.addWidget(QLabel('Color mix'))
+        self.dither_slider=QSlider(Qt.Orientation.Horizontal)
+        self.dither_slider.setRange(0,16)
+        self.dither_slider.setFixedWidth(90)
+        self.dither_slider.setValue(self.dither_level)
         self.dither_spin=QSpinBox()
-        self.dither_spin.setToolTip('Dither mix: 0=secondary color, 16=foreground; 8=50%')
         self.dither_spin.setRange(0,16)
-        self.dither_spin.setValue(8)
+        self.dither_spin.setFixedWidth(58)
+        self.dither_spin.setValue(self.dither_level)
+        self.dither_slider.valueChanged.connect(self.dither_spin.setValue)
+        self.dither_spin.valueChanged.connect(self.dither_slider.setValue)
         self.dither_spin.valueChanged.connect(lambda v:setattr(self,'dither_level',v))
-        tb.addWidget(self.dither_spin)
-        tb.addSeparator()
-        self.sym_x_box=QCheckBox('X↔')
-        self.sym_y_box=QCheckBox('Y↕')
-        self.sym_x_box.setToolTip('Horizontal symmetry')
-        self.sym_y_box.setToolTip('Vertical symmetry')
-        self.sym_x_box.toggled.connect(lambda v:setattr(self.canvas,'sym_x',v)) if hasattr(self,'canvas') else None
-        tb.addWidget(self.sym_x_box);tb.addWidget(self.sym_y_box)
-        self.fill_box=QCheckBox('Solid')
-        self.fill_box.setToolTip('Fill rectangles and ellipses')
-        tb.addWidget(self.fill_box)
-        self.contiguous_box=QCheckBox('Region')
+        mix_row.addWidget(self.dither_slider)
+        mix_row.addWidget(self.dither_spin)
+        bar.addWidget(self.dither_options)
+        self.symmetry_options=QWidget()
+        sym=QHBoxLayout(self.symmetry_options)
+        sym.setContentsMargins(0,0,0,0)
+        self.sym_x_box=QCheckBox('Mirror X')
+        self.sym_y_box=QCheckBox('Mirror Y')
+        sym.addWidget(self.sym_x_box);sym.addWidget(self.sym_y_box)
+        self.sym_x_box.toggled.connect(lambda v:setattr(self.canvas,'sym_x',v))
+        self.sym_y_box.toggled.connect(lambda v:setattr(self.canvas,'sym_y',v))
+        bar.addWidget(self.symmetry_options)
+        self.shape_options=QWidget()
+        shape=QHBoxLayout(self.shape_options)
+        shape.setContentsMargins(0,0,0,0)
+        self.fill_box=QCheckBox('Filled shape')
+        self.fill_box.toggled.connect(lambda v:setattr(self.canvas,'filled_shapes',v))
+        shape.addWidget(self.fill_box)
+        bar.addWidget(self.shape_options)
+        self.bucket_options=QWidget()
+        fill=QHBoxLayout(self.bucket_options)
+        fill.setContentsMargins(0,0,0,0)
+        self.contiguous_box=QCheckBox('Connected region only')
         self.contiguous_box.setChecked(True)
         self.contiguous_box.toggled.connect(lambda v:setattr(self,'contiguous',v))
-        self.contiguous_box.setToolTip('Flood fill connected area; unchecked = replace throughout cel')
-        tb.addWidget(self.contiguous_box)
-        self.set_tool('pencil')
+        fill.addWidget(self.contiguous_box)
+        bar.addWidget(self.bucket_options)
+
+        bar.addSeparator()
+        self.primary_chip=QToolButton()
+        self.primary_chip.setText('Paint')
+        self.primary_chip.setToolTip('Choose paint color')
+        self.primary_chip.clicked.connect(lambda:self.pick_color(False))
+        self.secondary_chip=QToolButton()
+        self.secondary_chip.setText('Back')
+        self.secondary_chip.setToolTip('Choose secondary color')
+        self.secondary_chip.clicked.connect(lambda:self.pick_color(True))
+        swap=QToolButton()
+        swap.setText('⇄')
+        swap.setToolTip('Swap paint and secondary colors (X)')
+        swap.clicked.connect(self.swap_colors)
+        bar.addWidget(self.primary_chip)
+        bar.addWidget(swap)
+        bar.addWidget(self.secondary_chip)
+        self.refresh_tool_options()
+
+    def refresh_tool_options(self):
+        if not hasattr(self,'tool_title'):return
+        title,hint=self.tool_descriptions.get(self.tool,('Pencil','Draw on the canvas'))
+        self.tool_title.setText(title.upper())
+        self.tool_hint.setText(hint)
+        painting=self.tool in ('pencil','eraser','dither')
+        self.brush_options.setVisible(painting)
+        self.dither_options.setVisible(self.tool=='dither')
+        self.symmetry_options.setVisible(painting)
+        self.shape_options.setVisible(self.tool in ('rectangle','ellipse'))
+        self.bucket_options.setVisible(self.tool=='bucket')
+
+    def swap_colors(self):
+        self.foreground,self.secondary=self.secondary,self.foreground
+        self.refresh_palette()
 
     def build_dock(self,title,objectname,widget,area):
         dock=QDockWidget(title,self)
@@ -368,17 +513,27 @@ class Editor(QMainWindow):
     def build_palette(self):
         root=QWidget();v=QVBoxLayout(root)
         top=QHBoxLayout()
-        self.fg_button=QPushButton('FG')
-        self.bg_button=QPushButton('BG')
+        self.fg_button=QPushButton('PAINT')
+        self.bg_button=QPushButton('SECONDARY')
+        self.swap_button=QPushButton('⇄')
+        self.swap_button.setFixedWidth(40)
+        self.swap_button.setToolTip('Swap foreground and secondary (X)')
+        self.swap_button.clicked.connect(self.swap_colors)
         self.fg_button.setToolTip('Click to pick foreground color')
         self.bg_button.setToolTip('Click to pick secondary/right-click color')
         self.fg_button.clicked.connect(lambda:self.pick_color(False))
         self.bg_button.clicked.connect(lambda:self.pick_color(True))
-        top.addWidget(self.fg_button);top.addWidget(self.bg_button)
+        top.addWidget(self.fg_button)
+        top.addWidget(self.swap_button)
+        top.addWidget(self.bg_button)
         v.addLayout(top)
         self.color_grid=QGridLayout();self.color_grid.setSpacing(4)
         v.addLayout(self.color_grid)
-        a=QPushButton('+ Add FG to palette')
+        hint=QLabel('Click a swatch to paint · right-click for secondary')
+        hint.setWordWrap(True)
+        hint.setObjectName('ToolHint')
+        v.addWidget(hint)
+        a=QPushButton('+ Save paint color')
         a.clicked.connect(self.add_palette_color)
         v.addWidget(a)
         v.addStretch()
@@ -387,24 +542,48 @@ class Editor(QMainWindow):
         self.layer_dock.raise_()
 
     def build_timeline(self):
-        root=QWidget();v=QVBoxLayout(root)
+        root=QWidget()
+        v=QVBoxLayout(root)
+        v.setContentsMargins(9,7,9,7)
+        v.setSpacing(6)
         top=QHBoxLayout()
-        for label,fn,tip in [('|◀',self.previous_frame,'Previous frame'),
-                             ('▶ / ❚❚',self.toggle_play,'Play/pause'),
-                             ('▶|',self.next_frame,'Next frame'),
-                             ('+ Blank',self.add_frame,'Insert blank after current'),
-                             ('⧉ Duplicate',self.duplicate_frame,'Duplicate selected frames (Ctrl+D)'),
-                             ('⇄ Hold',self.insert_holds,'Insert linked holds of active pose'),
-                             ('− Delete',self.delete_frame,'Delete current frame')]:
-            b=QPushButton(label);b.clicked.connect(fn);b.setToolTip(tip);top.addWidget(b)
-        for label, fn, tip in [ ('←',lambda:self.move_selected_frames(-1),'Move selected frames left'),
-                               ('→',lambda:self.move_selected_frames(1),'Move selected frames right'),
-                               ('Link',self.link_selected_cels,'Link selected cels on current layer'),
-                               ('Unlink',self.unlink_selected_cels,'Unlink selected cels on current layer')]:
-            b=QPushButton(label); b.clicked.connect(fn); b.setToolTip(tip); top.addWidget(b)
-        top.addStretch()
-        top.addWidget(QLabel('Duration of selected frames (ms)'))
-        self.duration=QSpinBox();self.duration.setRange(16,10000);self.duration.setSingleStep(25)
+        top.setSpacing(6)
+        self.timeline_info=QLabel('FRAME 1 / 1')
+        self.timeline_info.setObjectName('TimelineInfo')
+        self.timeline_info.setMinimumWidth(115)
+        top.addWidget(self.timeline_info)
+        for label,fn,tip in [ ('◀',self.previous_frame,'Previous frame  ·  Alt+Left'),
+                              ('▶ Play',self.toggle_play,'Play or pause animation  ·  Space'),
+                              ('▶|',self.next_frame,'Next frame  ·  Alt+Right')]:
+            b=QPushButton(label)
+            b.setToolTip(tip)
+            b.clicked.connect(fn)
+            if label=='▶ Play':
+                self.play_button=b
+                b.setObjectName('PrimaryAction')
+            top.addWidget(b)
+        top.addSpacing(13)
+        for label,fn,tip in [ ('+ Frame',self.duplicate_frame,'Duplicate selected frame(s)  ·  Ctrl+D'),
+                              ('+ Blank',self.add_frame,'Insert a blank frame  ·  Alt+N')]:
+            b=QPushButton(label)
+            b.setToolTip(tip)
+            b.clicked.connect(fn)
+            top.addWidget(b)
+        more=QToolButton()
+        more.setText('More  ▾')
+        more.setToolTip('Exposure holds, link/unlink, reorder and frame actions')
+        more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.frame_menu=self.build_frame_menu(more)
+        more.setMenu(self.frame_menu)
+        top.addWidget(more)
+        top.addStretch(1)
+        top.addWidget(QLabel('Hold'))
+        self.duration=QSpinBox()
+        self.duration.setRange(16,10000)
+        self.duration.setSingleStep(25)
+        self.duration.setSuffix(' ms')
+        self.duration.setToolTip('Duration of selected frames, in milliseconds')
+        self.duration.setFixedWidth(104)
         self.duration.setValue(100)
         self.duration.valueChanged.connect(self.duration_changed)
         top.addWidget(self.duration)
@@ -413,20 +592,40 @@ class Editor(QMainWindow):
         self.timeline.setViewMode(QListWidget.ViewMode.IconMode)
         self.timeline.setFlow(QListWidget.Flow.LeftToRight)
         self.timeline.setWrapping(False)
-        self.timeline.setMovement(QListWidget.Movement.Static)
+        self.timeline.setMovement(QListWidget.Movement.Snap)
         self.timeline.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.timeline.setToolTip('Ctrl-click / Shift-click frames to select a block. Ctrl+D duplicates the selected block.')
-        self.timeline.setIconSize(QSize(76,76))
-        self.timeline.setGridSize(QSize(96,110))
+        self.timeline.setToolTip('Click to select; Ctrl/Shift-click to select frames; drag to rearrange.')
+        self.timeline.setIconSize(QSize(80,80))
+        self.timeline.setGridSize(QSize(103,116))
         self.timeline.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.timeline.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self.timeline.setMaximumHeight(136)
-        self.timeline.setMinimumHeight(118)
+        self.timeline.setMinimumHeight(128)
+        self.timeline.setMaximumHeight(149)
         self.timeline.currentRowChanged.connect(self.frame_selected)
         self.timeline.frameDropRequested.connect(self.reorder_selected_frames)
+        self.timeline.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.timeline.customContextMenuRequested.connect(
+            lambda point:self.frame_menu.exec(self.timeline.mapToGlobal(point)))
         v.addWidget(self.timeline)
-        self.timeline_dock=self.build_dock('Animation timeline','TimelineDock',root,
+        self.timeline_dock=self.build_dock('Timeline','TimelineDock',root,
                                           Qt.DockWidgetArea.BottomDockWidgetArea)
+
+    def build_frame_menu(self, parent):
+        menu=QMenu('Frame actions',parent)
+        for label, fn in [('Duplicate linked',self.duplicate_linked),
+                          ('Insert exposure holds…',self.insert_holds),
+                          ('Copy selected frames',self.copy_frame_block),
+                          ('Paste frame block',self.paste_frame_block),
+                          ('Link selected cels',self.link_selected_cels),
+                          ('Unlink selected cels',self.unlink_selected_cels),
+                          ('Move selection left',lambda:self.move_selected_frames(-1)),
+                          ('Move selection right',lambda:self.move_selected_frames(1)),
+                          ('Delete selected frames',self.delete_frame)]:
+            action=menu.addAction(label)
+            action.triggered.connect(fn)
+            if label in ('Copy selected frames','Link selected cels','Move selection left'):
+                menu.insertSeparator(action)
+        return menu
 
     def build_preview(self):
         root=QWidget();v=QVBoxLayout(root)
@@ -440,26 +639,53 @@ class Editor(QMainWindow):
                                          Qt.DockWidgetArea.RightDockWidgetArea)
 
     def build_studio_bar(self):
-        """Small purposeful studio chrome, no browser/window imitation."""
         bar=QToolBar('Studio controls',self)
         bar.setObjectName('StudioControlBar')
         bar.setMovable(False)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea,bar)
-        logo=QLabel('  ◈  MELLOW  /  STUDIO  ')
+        home=QToolButton()
+        home.setText('⌂')
+        home.setToolTip('Start / recent projects  ·  Ctrl+Shift+H')
+        home.clicked.connect(self.show_welcome)
+        bar.addWidget(home)
+        logo=QLabel('  MELLOW  ')
         logo.setObjectName('StudioWordmark')
         bar.addWidget(logo)
-        self.mode_label=QLabel('  PIXEL WORKSPACE  •  TRUE RESOLUTION  ')
-        self.mode_label.setObjectName('StudioKicker')
-        bar.addWidget(self.mode_label)
+        bar.addSeparator()
+        self.project_label=QLabel('Untitled')
+        self.project_label.setObjectName('StudioKicker')
+        self.project_label.setMinimumWidth(175)
+        bar.addWidget(self.project_label)
         bar.addSeparator()
         for label,callback,tooltip in [
-            ('+ FRAME',self.duplicate_frame,'Duplicate independent frame (Ctrl+D)'),
-            ('▶ PLAY',self.toggle_play,'Preview active animation'),
-            ('◈ ALIGN',self.open_reference_lab,'Review retained reference sources'),
-            ('SAVE',self.save_project,'Save current project')]:
-            button=QToolButton();button.setText(label);button.setToolTip(tooltip)
-            if label=='◈ ALIGN':button.setObjectName('AccentAction')
-            button.clicked.connect(callback);bar.addWidget(button)
+            ('↶',self.undo,'Undo  ·  Ctrl+Z'),
+            ('↷',self.redo,'Redo  ·  Ctrl+Y'),
+            ('+ Frame',self.duplicate_frame,'Duplicate frame  ·  Ctrl+D'),
+            ('Reference',self.open_reference_lab,'Source alignment  ·  Ctrl+Alt+R')]:
+            button=QToolButton()
+            button.setText(label)
+            button.setToolTip(tooltip)
+            button.clicked.connect(callback)
+            bar.addWidget(button)
+        focus=QToolButton()
+        focus.setText('Focus')
+        focus.setToolTip('Hide panels to paint freely  ·  F11')
+        focus.clicked.connect(self.toggle_focus_mode)
+        bar.addWidget(focus)
+        spacer=QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Preferred)
+        bar.addWidget(spacer)
+        save=QToolButton()
+        save.setText('Save')
+        save.setToolTip('Save project  ·  Ctrl+S')
+        save.clicked.connect(self.save_project)
+        bar.addWidget(save)
+        export=QToolButton()
+        export.setText('Export…')
+        export.setObjectName('PrimaryAction')
+        export.setToolTip('Export animation or artwork  ·  Ctrl+E')
+        export.clicked.connect(self.quick_export)
+        bar.addWidget(export)
 
     def build_reference_dock(self):
         root=QWidget();layout=QVBoxLayout(root)
@@ -520,6 +746,7 @@ class Editor(QMainWindow):
         self.tool=tool
         for name,b in self.tool_buttons.items():
             b.setChecked(name==tool)
+        self.refresh_tool_options()
         if hasattr(self,'statusBar'):
             self.statusBar().showMessage('Tool: '+tool.title(),1400)
 
@@ -537,6 +764,8 @@ class Editor(QMainWindow):
                      Qt.Key.Key_H:'pan'}
             if key in mapping and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
                 self.set_tool(mapping[key]);event.accept();return
+            if key==Qt.Key.Key_X and event.modifiers()==Qt.KeyboardModifier.NoModifier:
+                self.swap_colors();event.accept();return
             if key==Qt.Key.Key_Escape:
                 if self.canvas.floating is not None:
                     self.cancel_floating()
@@ -616,10 +845,6 @@ class Editor(QMainWindow):
             self.refresh_preview()
             self.refresh_reference_panel()
             self.update_title()
-            self.sym_x_box.toggled.connect(lambda v:setattr(self.canvas,'sym_x',v)) if not getattr(self,'_sym_connected',False) else None
-            self.sym_y_box.toggled.connect(lambda v:setattr(self.canvas,'sym_y',v)) if not getattr(self,'_sym_connected',False) else None
-            self.fill_box.toggled.connect(lambda v:setattr(self.canvas,'filled_shapes',v)) if not getattr(self,'_sym_connected',False) else None
-            self._sym_connected=True
         finally:
             self._refreshing=False
 
@@ -658,6 +883,11 @@ class Editor(QMainWindow):
         self.duration.setValue(self.doc.frames[self.doc.active_frame].duration_ms)
         self.duration.blockSignals(False)
         self.timeline.blockSignals(False)
+        self.update_timeline_info()
+
+    def update_timeline_info(self):
+        if hasattr(self,'timeline_info'):
+            self.timeline_info.setText(f'FRAME {self.doc.active_frame+1} / {len(self.doc.frames)}')
 
     def refresh_layers(self):
         self.layer_list.blockSignals(True)
@@ -686,9 +916,21 @@ class Editor(QMainWindow):
             if w:w.deleteLater()
         for i,hexcode in enumerate(self.doc.palette):
             sw=Swatch(hexcode,self.set_foreground_hex,self.set_secondary_hex)
+            if hexcode.lower()==self.to_hex(self.foreground).lower():
+                sw.setStyleSheet(f'background:{hexcode}; border:3px solid #efb48d; border-radius:5px;')
+                sw.setToolTip(sw.toolTip()+' · selected paint color')
             self.color_grid.addWidget(sw,i//6,i%6)
-        self.fg_button.setStyleSheet('background:'+self.to_hex(self.foreground)+'; color:#fff; font-weight:bold;')
-        self.bg_button.setStyleSheet('background:'+self.to_hex(self.secondary)+'; color:#151923; font-weight:bold;')
+        for btn, color in ((self.fg_button,self.foreground),(self.bg_button,self.secondary)):
+            rgb=self.to_hex(color)
+            brightness=(color[0]*299+color[1]*587+color[2]*114)//1000
+            fg='#192330' if brightness>145 else '#fffdf9'
+            btn.setStyleSheet(f'background:{rgb}; color:{fg}; font-weight:700; border:2px solid #8399ae;')
+        for btn, color in ((getattr(self,'primary_chip',None),self.foreground),
+                           (getattr(self,'secondary_chip',None),self.secondary)):
+            if btn is not None:
+                rgb=self.to_hex(color)
+                contrast='#17202b' if (color[0]*299+color[1]*587+color[2]*114)//1000>145 else '#ffffff'
+                btn.setStyleSheet(f'background:{rgb}; color:{contrast}; border:2px solid #8798ab; font-weight:700;')
 
     @staticmethod
     def to_hex(c):
@@ -789,6 +1031,7 @@ class Editor(QMainWindow):
         self.duration.blockSignals(False)
         self.refresh_preview()
         self.refresh_reference_panel()
+        self.update_timeline_info()
 
     def duration_changed(self,value):
         if self._refreshing:return
@@ -810,6 +1053,7 @@ class Editor(QMainWindow):
         self.duration.blockSignals(False)
         self.refresh_preview()
         self.refresh_reference_panel()
+        self.update_timeline_info()
 
     def previous_frame(self):
         self.set_frame_fast(self.doc.active_frame-1)
@@ -935,6 +1179,8 @@ class Editor(QMainWindow):
             self.preview_playing=True
             self.play_timer.setInterval(self.doc.frames[self.doc.active_frame].duration_ms)
             self.play_timer.start()
+        if hasattr(self,'play_button'):
+            self.play_button.setText('❚❚ Pause' if self.preview_playing else '▶ Play')
         self.statusBar().showMessage('Playing' if self.preview_playing else 'Paused',1500)
 
     def next_playback_frame(self):
@@ -1112,13 +1358,39 @@ class Editor(QMainWindow):
         self.set_document(Document(dialog.w.value(),dialog.h.value(),dialog.name.text() or 'Untitled'))
 
     def open_project(self):
-        if not self.confirm_discard():return
         path,_=QFileDialog.getOpenFileName(self,'Open Mellow Studio project','','Mellow projects (*.mellowzip)')
-        if not path:return
+        if path:
+            self.open_project_path(Path(path))
+
+    def open_project_path(self,path: Path):
+        if not Path(path).is_file():
+            QMessageBox.warning(self,'Project unavailable',f'This project is missing:\n{path}')
+            self.settings.setValue('recent/projects',tidy_recent(self.settings.value('recent/projects',[])))
+            return False
         try:
-            self.set_document(project_load(path),Path(path))
+            document=project_load(path)
         except Exception as exc:
             QMessageBox.critical(self,'Project could not be opened',str(exc))
+            return False
+        if not self.confirm_discard():return False
+        self.set_document(document,Path(path))
+        return True
+
+    def remember_project(self,path: Path):
+        entries=self.settings.value('recent/projects',[])
+        self.settings.setValue('recent/projects',tidy_recent([str(path),*(entries if isinstance(entries,list) else [entries])]))
+
+    def show_welcome(self):
+        recent=tidy_recent(self.settings.value('recent/projects',[]))
+        dialog=WelcomeDialog(self,recent,self.settings.value('welcome/on_startup',True,type=bool),
+            recovery_available=bool(self.recovery.entries()))
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        self.settings.setValue('welcome/on_startup',dialog.show_on_startup.isChecked())
+        if dialog.choice=='recover':self.recover_autosave()
+        elif dialog.choice=='new':self.new_project()
+        elif dialog.choice=='open':self.open_project()
+        elif dialog.choice=='sample':self.open_mellow()
+        elif dialog.choice=='recent' and dialog.selected_path:self.open_project_path(Path(dialog.selected_path))
 
     def open_mellow(self):
         if self.confirm_discard():
@@ -1245,9 +1517,14 @@ class Editor(QMainWindow):
         self._frame_selection_override=[doc.active_frame]
         self.refresh_all()
         self.zoom_fit()
+        if file_path is not None:
+            self.remember_project(Path(file_path))
 
     def update_title(self):
         self.setWindowTitle(('* ' if self.dirty else '')+self.doc.name+' — '+APP_TITLE)
+        if hasattr(self,'project_label'):
+            self.project_label.setText(('● ' if self.dirty else '')+self.doc.name+f'  ·  {self.doc.width}×{self.doc.height}')
+            self.project_label.setToolTip(str(self.file_path) if self.file_path else 'Not yet saved')
 
     def _save_to_path(self, path: Path) -> bool:
         self.commit_floating()
@@ -1260,6 +1537,7 @@ class Editor(QMainWindow):
             QMessageBox.critical(self, 'Save failed', str(exc))
             return False
         self.file_path = path
+        self.remember_project(path)
         self.dirty = False
         self.recovery.discard_token(previous_token)
         if self._recovered_entry is not None:
@@ -1282,6 +1560,33 @@ class Editor(QMainWindow):
         p=Path(path)
         if p.suffix.lower()!='.mellowzip':p=p.with_suffix('.mellowzip')
         return self._save_to_path(p)
+
+    def quick_export(self):
+        """One destination and all common output formats, using the headless exporter."""
+        self.commit_floating()
+        folder=str(self.settings.value('export/last_folder',str(Path.home())))
+        dialog=ExportDialog(self.doc,folder,self)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        destination=Path(dialog.destination.text().strip()).expanduser()
+        kind=dialog.kind
+        if kind!='frames':
+            desired='.gif' if kind=='gif' else '.png'
+            if destination.suffix.lower()!=desired:
+                destination=destination.with_suffix(desired)
+        try:
+            if kind=='gif':
+                destination.parent.mkdir(parents=True,exist_ok=True)
+                frames=[self.doc.composite(i) for i in range(len(self.doc.frames))]
+                frames[0].save(destination,save_all=True,append_images=frames[1:],
+                    duration=[f.duration_ms for f in self.doc.frames],loop=0,disposal=2)
+                files=[destination]
+            else:
+                files=export_native(self.doc,destination,kind,frame=self.doc.active_frame+1,
+                                   layout=dialog.layout_kind.currentData())
+            self.settings.setValue('export/last_folder',str(destination if kind=='frames' else destination.parent))
+            self.statusBar().showMessage(f'Exported {len(files)} file(s) to {destination}',6500)
+        except Exception as exc:
+            QMessageBox.warning(self,'Export failed',str(exc))
 
     def export_png(self):
         path,_=QFileDialog.getSaveFileName(self,'Export current frame',self.doc.name+'.png','PNG image (*.png)')
@@ -1385,7 +1690,23 @@ class Editor(QMainWindow):
         if geometry:self.restoreGeometry(geometry)
         if state:self.restoreState(state)
 
+    def toggle_focus_mode(self):
+        """Make more painting space without losing the full editor workspace."""
+        if not self._focus_mode:
+            self._dock_visibility_before_focus={dock.objectName():dock.isVisible()
+                for dock in self._view_docks}
+            for dock in self._view_docks:
+                dock.hide()
+            self._focus_mode=True
+            self.statusBar().showMessage('Canvas focus · F11 restores your panels',3500)
+        else:
+            for dock in self._view_docks:
+                dock.setVisible(self._dock_visibility_before_focus.get(dock.objectName(),False))
+            self._focus_mode=False
+            self.statusBar().showMessage('Workspace restored',2000)
+
     def reset_layout(self):
+        self._focus_mode=False
         for dock in self._view_docks:dock.show()
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,self.timeline_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.layer_dock)
@@ -1432,9 +1753,11 @@ def main():
     app.setApplicationName(APP_TITLE)
     app.setOrganizationName('MellowStudio')
     app.setStyle('Fusion')
-    app.setStyleSheet("\nQWidget { background-color:#181c27; color:#e9eafa; font-family:'Segoe UI'; font-size:10pt; }\nQMainWindow, QDialog { background-color:#181c27; }\nQMenuBar, QMenu, QStatusBar { background-color:#141823; color:#b4bfd2; }\nQMenuBar::item { padding:6px 11px; }\nQMenuBar::item:selected, QMenu::item:selected { background:#343c56; color:#fff; }\nQToolBar { background:#202534; border:0; spacing:5px; padding:5px; }\nQToolBar#StudioControlBar { background:#171d2d; border-bottom:1px solid #39445c; }\nQDockWidget { color:#bdc8e0; border:0; }\nQDockWidget::title { background:#252c3e; border-top:1px solid #3b4761; padding:9px 12px; font-weight:600; }\nQLabel#StudioWordmark { color:#e5d49a; font-weight:800; font-size:13pt; background:#171d2d; }\nQLabel#StudioKicker { color:#91b6ce; font-size:9pt; font-weight:700; }\nQLabel#ReferencePreview { background:#101520; border:1px solid #46516e; border-radius:6px; padding:4px; }\nQPushButton, QToolButton { background:#30384e; color:#f0f1fa; border:1px solid #45536d; border-radius:6px; padding:7px 10px; font-weight:500; }\nQPushButton:hover, QToolButton:hover { background:#43516c; border:1px solid #86c9dd; }\nQPushButton:pressed, QToolButton:pressed { background:#26354a; }\nQPushButton#AccentAction, QToolButton#AccentAction { background:#235c6d; border:1px solid #389ab3; color:#f2fcff; font-weight:700; }\nQPushButton#AccentAction:hover, QToolButton#AccentAction:hover { background:#307b8b; }\nQToolButton:checked { background:#315d71; border:1px solid #e4d18a; color:#fff; }\nQLineEdit,QSpinBox,QDoubleSpinBox,QComboBox,QListWidget,QTableWidget { background:#202637; border:1px solid #45536d; border-radius:5px; color:#edf4fc; padding:4px; selection-background-color:#386c7d; }\nQListWidget::item:selected, QTableWidget::item:selected { background:#345970; }\nQHeaderView::section { background:#293349; color:#dce8f6; border:0; border-right:1px solid #3d4960; padding:6px; }\nQLabel, QCheckBox { color:#cbd5e6; }\nQScrollBar { background:#161e2b; width:11px; height:11px; }\nQScrollBar::handle { background:#4a6782; border-radius:4px; }\nQSlider::groove:horizontal { background:#35435a; height:5px; border-radius:2px; }\nQSlider::handle:horizontal { background:#b6d5e1; width:13px; margin:-4px 0; border-radius:6px; }\nQTabBar::tab { background:#222b3d; color:#a8b9d1; padding:8px 15px; }\nQTabBar::tab:selected { background:#34536b; color:#fff; border-top:2px solid #c9b779; }\n")
+    app.setStyleSheet(STUDIO_QSS)
     window=Editor()
     window.show()
+    if window.settings.value('welcome/on_startup',True,type=bool):
+        QTimer.singleShot(0,window.show_welcome)
     sys.exit(app.exec())
 
 
