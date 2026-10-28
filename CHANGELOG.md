@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.4 — Artist-first studio experience (development preview)
+
+- A real **Welcome / Start** screen with New Canvas, Open Project, bundled sample, recent native projects, optional startup toggle, and access to saved crash recovery.
+- Friendlier **New Canvas** presets; no pixel-grid math necessary for everyday sprite work.
+- A drawing-only left **tool rail** with local vector icons and keyboard shortcuts. Brush size, dither mix, symmetry, shape fill, and bucket region switches appear **contextually** for the active tool, not permanently alongside unrelated tools.
+- A dramatically calmer **Timeline** with visible frame count, transport, duplicate/blank actions, compact duration and right-click/More operations for linked holds, block copy/paste, and reordering.
+- A **Quick Export** dialog with four useful outcomes: PNG, sheet+JSON, numbered frames+JSON, and looping GIF. Previous individual export paths remain available.
+- A **Focus canvas (F11)** mode, foreground/background swap (`X`), more evident palette selection, and a better project/status and save/export control bar.
+- Project history, native reference registration, undo, recovery and technical pixel precision remain unchanged in their core engine.
+- Coverage: 56 local headless tests, plus new Windows Qt smoke for home/presets/tool context/timeline/focus/export. User acceptance and visual review remain outstanding.
+
 ## Unreleased — Sprint 0.2.3 Reference Lab + Qt UI refinement
 
 - Embedded losslessly decoded source reference pixels in v3 `.mellowzip` archives; v1 and v2 remain readable.
