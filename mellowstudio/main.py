@@ -109,7 +109,7 @@ class Editor(QMainWindow):
         self.setObjectName('MellowStudioMainWindow')
         self.settings=QSettings('MellowStudio','MellowStudio')
         self.doc=mellow_document()
-        self.history=History(32)
+        self.history=History()
         self.file_path: Path | None=None
         self.dirty=False
         self.tool='pencil'
@@ -1063,7 +1063,7 @@ class Editor(QMainWindow):
         self.doc=doc
         self.file_path=file_path
         self.dirty=(file_path is None)
-        self.history=History(32)
+        self.history=History()
         self.canvas.selection=None
         self.canvas.floating=None
         self.copied=None

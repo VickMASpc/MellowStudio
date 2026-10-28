@@ -43,6 +43,7 @@ def test_qt_floating_commit_cancel_and_frame_reorder(tmp_path, monkeypatch):
     app=QApplication.instance() or QApplication([])
     window=Editor()
     window.set_document(Document(8,8))
+    assert window.history.limit == 128
     window.show(); app.processEvents()
     window.doc.cel.putpixel((1,1),(255,0,0,255))
     window.canvas.selection=(1,1,2,2)
