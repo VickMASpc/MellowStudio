@@ -6,13 +6,13 @@
 
 **Can’t find a section?** Open **View → Colors / Layers / Preview / Reference / Timeline** to show it again, or use **View → Restore default workspace** (`Ctrl+Shift+0`) to restore the whole studio. **F11** temporarily hides sections and restores their previous state. The layout splitters adjust the inspector and timeline sizes without dragging a window over the canvas.
 
-**Update on Windows:** From the repo run `.\dev.ps1 sync`, then `.\start_windows.bat`. **Sync is intentionally destructive:** it deletes local-only edits/projects/exports and `.venv` inside the clone, then checks out the latest GitHub `main`; the launcher recreates the virtual environment. Move personal artwork outside the repository folder before syncing.
+**Update on Windows:** From the repo run `.\dev.ps1 sync`, then `.\start_windows.bat`. **Sync refreshes tracked source code only:** it updates your checkout to GitHub `main` while keeping the installed `.venv`, artwork, exports, ignored files and personal Git branches. It replaces conflicting edits to tracked Mellow files rather than requiring merges.
 
 **Validation:** Qt GUI smoke and regression matrix must pass; physical Windows layout feedback is still required. [Development plan](docs/DEVELOPMENT_PLAN.md) · [Sprint log](docs/SPRINT_LOG.md).
 
 ### Launch troubleshooting: missing pip
 
-If `start_windows.bat` reports `No module named pip` after a destructive sync, the Windows bootstrap now automatically restores it using `.venv\\Scripts\\python.exe -m ensurepip --upgrade` before installing the app. If your Python distribution lacks `ensurepip`, the launcher reports that explicitly. The editor launcher prints startup progress and keeps errors visible instead of failing silently. A manual repair for an existing `.venv` is:
+If `start_windows.bat` reports `No module named pip` (for example after an older sync removed `.venv`), the Windows bootstrap now automatically restores it using `.venv\\Scripts\\python.exe -m ensurepip --upgrade` before installing the app. If your Python distribution lacks `ensurepip`, the launcher reports that explicitly. The editor launcher prints startup progress and keeps errors visible instead of failing silently. A manual repair for an existing `.venv` is:
 
 ```powershell
 .\\.venv\\Scripts\\python.exe -m ensurepip --upgrade
@@ -26,7 +26,7 @@ If `start_windows.bat` reports `No module named pip` after a destructive sync, t
 
 **Make something move.** A professional studio should feel fast, coherent and pleasant, not like a technical settings console. A new Welcome screen, contextual drawing controls, approachable timeline and one export dialog now put everyday creative work first.
 
-**Start on Windows:** Run `./dev.ps1 sync` to wipe-refresh your clone from GitHub's latest `main`, then run `start_windows.bat`. Sync deletes `.venv`; the launcher recreates it. For the first upgrade from an old sync, see the one-time Git commands below. The Welcome screen offers New Canvas, Open, recently opened projects, the Mellow sample and available recovery. Reopen it anytime with Ctrl+Shift+H.
+**Start on Windows:** Run `./dev.ps1 sync` to update tracked code to GitHub's latest `main`, then run `start_windows.bat`. Your existing `.venv` is preserved. If your copy still has the old destructive sync script, see the one-time update below. The Welcome screen offers New Canvas, Open, recently opened projects, the Mellow sample and available recovery. Reopen it anytime with Ctrl+Shift+H.
 
 **Paint:** Tool-only vector icon rail (B pencil, D dither, E erase, F fill, I sample). Size, dither mix, symmetry and shape/fill switches appear contextually. X swaps foreground/secondary, and palette swatches make the current paint color visible.
 
@@ -185,18 +185,33 @@ The v0.2.1 history engine uses deduplicated compressed whole-document snapshots 
 
 Full professional feature matrix, architecture, workflow goals, and fast development cycle: **`docs/DEVELOPMENT_PLAN.md`**.
 
-## Repair or update your Git checkout (Windows)
+## Update Mellow without reinstalling anything (Windows)
 
-There is **one canonical branch**, `main`. After a PR is merged, GitHub automatically removes its obsolete remote feature branch only when the exact branch head matches the merged PR. No unmerged work is deleted. You do not need to manage sprint branches.
+From the repository root:
 
-From an up-to-date checkout, run `./dev.ps1 sync` (PowerShell) to safely fetch/prune deleted remote branches and fast-forward `main`. It preserves the shared `.venv`, all local edits, independent branches, and commits. If your copy predates the `sync` command, bootstrap with `git fetch --prune origin`, `git switch main`, then `git pull --ff-only origin main` once. Future runs use the single `./dev.ps1 sync` command.
+```powershell
+.\dev.ps1 sync
+.\start_windows.bat
+```
 
-The updater **never resets or stashes your work**. If Git reports local changes, a different remote, an authentication/network error, or a diverged `main`, it stops and explains why. The GitHub cleanup cannot reach or modify your PC automatically.
+**What sync does:** fetch the latest GitHub `main`, switch the local checkout to that revision and overwrite conflicting **tracked source files**. No branch merges, dirty-file prompts or repeated installations. **What sync no longer does:** delete `.venv`, remove local branches, delete untracked artwork/exports, or run `git clean`.
+
+**One-time repair if your local sync is still the *old destructive version*:**
+
+```powershell
+git fetch --prune origin
+if ($LASTEXITCODE -ne 0) { throw "Fetch failed" }
+git checkout -f -B main origin/main
+if ($LASTEXITCODE -ne 0) { throw "Checkout failed" }
+.\start_windows.bat
+```
+
+This replaces the broken updater **without** cleaning the folder. Artwork and Python dependencies already present are retained. Tracked source edits are discarded to match GitHub; personal project files should ideally be stored outside tracked source paths.
 
 ## GitHub development workflow
 
 This repository is the **single source of truth** from v0.2.0 forward. Do not unpack new versions into new folders. Make small feature branches, run tests, open PRs, and merge once green. Avoid committing generated `.venv`, caches, packaging output, or autosaves.
 
-On Windows, `.\dev.ps1 run` launches the editor, `.\dev.ps1 test` runs the tests, `.\dev.ps1 build` makes an EXE and `.\dev.ps1 cli ...` accesses headless batch commands. The normal commands reuse **one root `.venv`**; `sync` intentionally wipes it. Direct launch `start_windows.bat` works too. To force-recreate that one environment, delete `.venv` once and run setup again.
+On Windows, `.\dev.ps1 run` launches the editor, `.\dev.ps1 test` runs the tests, `.\dev.ps1 build` makes an EXE and `.\dev.ps1 cli ...` accesses headless batch commands. The normal commands reuse **one root `.venv`**, including after `sync`; an update does not reinstall it. Direct launch `start_windows.bat` works too. To force-recreate that one environment, delete `.venv` once and run setup again.
 
 CI runs Python engine tests on Ubuntu and GUI smoke tests on Windows; the merged 0.2.1 baseline passed. **For every code PR, update both `docs/DEVELOPMENT_PLAN.md` and `docs/SPRINT_LOG.md`** or the new sprint-documentation CI gate will fail. See [`docs/REPOSITORY_WORKFLOW.md`](docs/REPOSITORY_WORKFLOW.md). Remaining targets: [extended Reference Lab registration / Issue #7](https://github.com/VickMASpc/MellowStudio/issues/7) and [reliability / Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3).
