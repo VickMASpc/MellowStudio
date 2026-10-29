@@ -105,3 +105,13 @@
 **Acceptance still open:** physically review visual hierarchy and text/icon clarity on the user's Windows system, verify real mouse/keyboard interactions, check a new-to-export animation workflow and task time, ensure accessibility/HiDPI and preserve native-pixel Mellow regression. This is an implemented experience slice, not a completed Apple-level product.
 
 **Next:** address Windows test failures, record actual Qt CI evidence, then use practical artist feedback to shape 0.2.5 palette/paint/animation refinements. Issues #3 (reliability) and #7 (registration) remain tracked, not abandoned.
+
+## Maintenance change — force-refresh Windows sync (2026-10-29)
+
+**User request:** The prior protective sync repeatedly refused updates when Git saw local edits, local branches or diverging commits. The desired behavior is explicitly to discard **everything local** and get GitHub's latest `main`, without prompts, merges or stash recovery.
+
+**Implementation (PR pending):** Replace `scripts/sync_windows.ps1` with fetch-first, origin-validated force checkout/reset, `git clean -ffdx`, and deletion of local branches except `main`. Deletes local edited files, commits not reachable from fetched main (branches removed), ignored `.venv`, temporary files, and local-only projects inside the repository. Preserves GitHub remote and primary `.git`; the next launch bootstraps a fresh environment.
+
+**Safety boundary:** wrong origin or failed fetch exits before any destructive step. Git failures while cleaning or deleting other worktree branches are surfaced; external files outside the repo and separately linked worktrees are not deleted. First-time bootstrap from the pre-0.2.5 sync command still requires manual Git commands when that older sync refuses dirty files.
+
+**Verification:** Windows CI PowerShell parser + offline Git integration test for dirty/divergent checkout, hidden `.venv`, untracked nested repository, remote update, local branch removal and invalid-origin preflight; final CI outcome to be recorded after run. This policy is user-authorized and deliberately replaces prior preservation behavior.
