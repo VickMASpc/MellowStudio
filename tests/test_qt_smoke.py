@@ -236,3 +236,79 @@ def test_qt_artist_workspace_welcome_context_timeline_and_quick_export(tmp_path,
     assert (tmp_path/'out.json').is_file()
     window.dirty=False
     window.close()
+
+
+def test_qt_integrated_workspace_no_docks_and_recoverable_sections(tmp_path,monkeypatch):
+    """A user should never have to close Colors to reach the canvas."""
+    from PySide6.QtWidgets import QDockWidget, QScrollArea
+    from PySide6.QtCore import QPoint
+    from mellowstudio.model import Document
+
+    monkeypatch.setenv('XDG_DATA_HOME',str(tmp_path/'data'))
+    monkeypatch.setenv('XDG_CONFIG_HOME',str(tmp_path/'config'))
+    app=QApplication.instance() or QApplication([])
+    window=Editor()
+    window.set_document(Document(32,32,'Creative workspace'))
+    window.resize(1250,800)
+    window.show()
+    app.processEvents()
+    window.reset_layout()
+    app.processEvents()
+
+    # The old floating and tabbed dock architecture must not survive.
+    assert window.findChildren(QDockWidget)==[]
+    assert isinstance(window.inspector_scroll,QScrollArea)
+    assert window.palette_dock.isVisible()
+    assert window.layer_dock.isVisible()
+    assert window.timeline_dock.isVisible()
+    assert not window.reference_dock.isVisible()
+    assert window.scroller.isVisible()
+
+    # Everything has its own region; the color sidebar cannot overlay the art.
+    viewport_corner=window.scroller.mapTo(window.workspace_root,QPoint(0,0))
+    inspector_corner=window.inspector_scroll.mapTo(window.workspace_root,QPoint(0,0))
+    assert viewport_corner.x()+window.scroller.width()<=inspector_corner.x()+8
+
+    # View menu is a complete escape hatch even for intentionally hidden sections.
+    color_action=window._panel_actions['Colors']
+    color_action.trigger()
+    app.processEvents()
+    assert not window.palette_dock.isVisible()
+    assert not color_action.isChecked()
+    assert window.layer_dock.isVisible()
+    color_action.trigger()
+    app.processEvents()
+    assert window.palette_dock.isVisible()
+    assert color_action.isChecked()
+
+    for name in ('Colors','Layers','Preview','Reference','Timeline'):
+        window.set_panel_visible(name,False)
+    app.processEvents()
+    assert not window.inspector_scroll.isVisible()
+    window.reset_layout()
+    app.processEvents()
+    assert window.palette_dock.isVisible()
+    assert window.layer_dock.isVisible()
+    assert window.preview_dock.isVisible()
+    assert window.timeline_dock.isVisible()
+
+    # F11 must preserve the exact visible sections including hidden Reference.
+    window.toggle_focus_mode()
+    app.processEvents()
+    assert not window.palette_dock.isVisible()
+    assert not window.timeline_dock.isVisible()
+    assert window.scroller.isVisible()
+    window.toggle_focus_mode()
+    app.processEvents()
+    assert window.palette_dock.isVisible()
+    assert window.layer_dock.isVisible()
+    assert window.timeline_dock.isVisible()
+    assert not window.reference_dock.isVisible()
+
+    window.set_tool('pencil')
+    app.processEvents()
+    assert window.brush_options.isVisible() and not window.dither_options.isVisible()
+    window.set_tool('dither')
+    app.processEvents()
+    assert window.brush_options.isVisible() and window.dither_options.isVisible()
+    window.close()
