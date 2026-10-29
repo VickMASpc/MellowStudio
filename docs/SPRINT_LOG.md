@@ -128,3 +128,11 @@
 **CI verified:** [PR #13 Windows/Linux matrix, run 40868655365](https://github.com/VickMASpc/MellowStudio/actions/runs/40868655365) passed all five jobs, including the mandatory docs gate, two Linux engine suites, and **63 passing tests** on each Windows Python version (3.11 and 3.13). The new `test_qt_integrated_workspace_no_docks_and_recoverable_sections` passed on both. An initial run hung because the new test closed an intentionally unsaved test document and correctly triggered the discard confirmation; the fixture was fixed and `pytest-timeout` added to bound future Qt hangs. **Physical Windows visual/product acceptance is still NOT VERIFIED.**
 
 **Status:** CI VERIFIED for the integrated workspace; no manual designer/artist acceptance yet. Scope is a major structural replacement, not a claim of final Apple-level experience. The next work should target observed artist-task friction and onboarding, not speculative architecture.
+
+## 2026-10-29 — Windows sync root-check bugfix
+
+**User-reported regression:** `./dev.ps1 sync` refused the actual MellowStudio checkout with `The script is not running from the MellowStudio repository root.` The earlier script compared Git's absolute root path with a PowerShell-resolved path. This comparison can be brittle on Windows with slash formats, canonicalization or path aliases. The user's error was emitted before any fetch/clean: the script did not wipe their files.
+
+**Fix:** Validate using `git rev-parse --show-prefix` after moving into the script's parent folder: an empty prefix means this working directory is the Git root, while nonempty prefix explicitly refuses a script residing below another Git root (protecting the parent checkout). Retain the strict expected-origin and successful-fetch checks before any destructive action.
+
+**Regression added:** Windows bare-remote fixture now clones into a path containing spaces and parentheses (`Nova pasta (8)/MellowStudio`), verifies a clean force-sync, and separately refuses an identical script run from a nested subdirectory without deleting parent edits. Existing wrong-origin and dirty/ignored file checks remain. **CI pending**; actual user Windows run is not yet verified.
