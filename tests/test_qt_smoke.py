@@ -329,7 +329,7 @@ def test_qt_dock_windows_recoverable_and_colors_not_over_canvas(tmp_path,monkeyp
 def test_full_original_docking_freedom_with_canvas_reservation(tmp_path,monkeypatch):
     """Tab/stack/move/focus were supported before PR #13 and must stay supported."""
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QDockWidget, QScrollArea
+    from PySide6.QtWidgets import QDockWidget, QScrollArea, QMainWindow
     from mellowstudio.model import Document
 
     monkeypatch.setenv('XDG_DATA_HOME',str(tmp_path/'data'))
@@ -343,8 +343,8 @@ def test_full_original_docking_freedom_with_canvas_reservation(tmp_path,monkeypa
     window.reset_layout()
     app.processEvents()
 
-    assert window.dockOptions() & window.DockOption.AllowTabbedDocks
-    assert window.dockOptions() & window.DockOption.AllowNestedDocks
+    assert window.dockOptions() & QMainWindow.DockOption.AllowTabbedDocks
+    assert window.dockOptions() & QMainWindow.DockOption.AllowNestedDocks
     assert window.scroller.minimumHeight() >= 240
     assert window.scroller.minimumWidth() >= 340
     assert isinstance(window.palette_dock.widget(), QScrollArea)
