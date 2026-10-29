@@ -1,5 +1,13 @@
 # Changelog
 
+
+## Windows bootstrap repair — pip-less environments (2026-10-29)
+
+- The launcher now repairs a missing `pip` in the root `.venv` automatically with `ensurepip` before installing Mellow dependencies.
+- Startup explicitly reports preparation, launch and errors; no more ambiguous blank terminal failures.
+- Windows CI creates a deliberately pip-less virtual environment, tests repair, repeated startup checks and invalid interpreter detection.
+
+
 ## 0.2.5 — One-window studio: full layout replacement (development)
 
 - Removed all live Qt dock widgets, floating/tabs and old saved window/dock state. No color window to close before drawing.

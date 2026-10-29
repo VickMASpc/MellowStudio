@@ -56,6 +56,10 @@ jobs:
         if: runner.os == 'Windows' && matrix.python == '3.11'
         shell: pwsh
         run: pwsh -NoProfile -File tests/test_force_sync_windows.ps1
+      - name: Rebuild pip inside a Windows venv created without pip
+        if: runner.os == 'Windows' && matrix.python == '3.11'
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/test_windows_pip_bootstrap.ps1
       - name: Compile all modules
         run: python -m compileall -q mellowstudio
       - name: Run headless engine tests (Linux)
