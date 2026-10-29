@@ -1,6 +1,14 @@
 # Changelog
 
 
+## Windows Qt package-version correction (2026-10-29)
+
+- Check **the installed version of every Qt binding** before launching. A stale PySide6 6.12 environment no longer passes a PySide6 6.10.2 requirement check.
+- Reconcile Qt package versions in the existing `.venv`, regardless of an obsolete previous repair marker; one version-specific repair attempt avoids repeated downloads.
+- Added regression tests for mixed/missing Qt package versions and Python 3.14 Windows CI coverage.
+- Updated diagnostics to distinguish existing Qt DLL files, loadable VC runtimes and missing indirect dependencies without guessing the cause.
+
+
 ## Windows startup — native QtCore dependency repair (2026-10-29)
 
 - Pin PySide6 6.10.2 instead of selecting a different Qt wheel on every fresh environment.
