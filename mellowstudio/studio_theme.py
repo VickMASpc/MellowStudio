@@ -91,6 +91,43 @@ QToolButton#ToolGlyph:checked {
     background: #d7edef;
     border: 1px solid #83bac2;
 }
+/* Qt's original toolbars are back with the flexible docking workspace. */
+QToolBar#DrawingTools {
+    background: #ffffff;
+    border-right: 1px solid #e1e8ee;
+    padding: 8px 5px;
+    spacing: 3px;
+}
+QToolBar#StudioControlBar {
+    background: #ffffff;
+    border-bottom: 1px solid #e3e8ee;
+    padding: 5px 8px;
+    spacing: 6px;
+}
+QToolBar#ToolOptionsBar {
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8ef;
+    padding: 6px 8px;
+    spacing: 6px;
+}
+QToolBar::separator {
+    background: #e1e8ee;
+    width: 1px;
+    height: 1px;
+    margin: 7px;
+}
+QMainWindow::separator {
+    background: #e5ebf1;
+    width: 5px;
+    height: 5px;
+}
+QMainWindow::separator:hover {
+    background: #8ebdc8;
+}
+QScrollArea#ColorPanelScroll {
+    background: #ffffff;
+    border: 0;
+}
 QDockWidget {
     color: #283b48;
     font-weight: 600;
