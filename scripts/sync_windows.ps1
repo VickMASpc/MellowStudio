@@ -19,14 +19,16 @@ try {
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         throw 'Git for Windows was not found. Install Git and run sync again.'
     }
-    $root = & git rev-parse --show-toplevel 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $root) {
+    # Git may report Windows paths with / instead of \, alternate casing, or
+    # canonicalized/reparse-point paths. Comparing those path strings is brittle.
+    # --show-prefix is empty only when our current directory is the Git root.
+    # Never force-clean a parent repository from inside a nested directory.
+    $prefix = & git rev-parse --show-prefix 2>$null
+    if ($LASTEXITCODE -ne 0) {
         throw 'This is not a Git checkout. Clone MellowStudio into this folder first.'
     }
-    $actualRoot = [System.IO.Path]::GetFullPath([string]$root).TrimEnd('\', '/')
-    $scriptRoot = [System.IO.Path]::GetFullPath($repo).TrimEnd('\', '/')
-    if (-not [string]::Equals($actualRoot, $scriptRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw 'The script is not running from the MellowStudio repository root.'
+    if (-not [string]::IsNullOrWhiteSpace([string]$prefix)) {
+        throw "MellowStudio is inside another Git checkout (relative path: '$prefix'). Refusing to wipe the parent repository."
     }
 
     # Use the literal configured URL; git remote get-url expands insteadOf rules.
