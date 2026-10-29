@@ -91,6 +91,51 @@ QToolButton#ToolGlyph:checked {
     background: #d7edef;
     border: 1px solid #83bac2;
 }
+QDockWidget {
+    color: #283b48;
+    font-weight: 600;
+    border: 1px solid #dce4eb;
+    background: #ffffff;
+}
+QDockWidget::title {
+    background: #f7f9fb;
+    border-bottom: 1px solid #dfe6eb;
+    padding: 8px 30px 8px 12px;
+    text-align: left;
+}
+QDockWidget::close-button, QDockWidget::float-button {
+    background: #e7eef1;
+    border: 1px solid #c9d8df;
+    border-radius: 3px;
+}
+QDockWidget::close-button:hover, QDockWidget::float-button:hover {
+    background: #d3e8ec;
+}
+QWidget#SaturationValueField {
+    border: 1px solid #cfdde4;
+    border-radius: 7px;
+}
+QSlider#HueSlider::groove:horizontal {
+    height: 12px;
+    border: 1px solid #cbd6df;
+    border-radius: 6px;
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+      stop:0 #ff0000, stop:0.166 #ffff00, stop:0.333 #00ff00,
+      stop:0.5 #00ffff, stop:0.666 #0000ff,
+      stop:0.833 #ff00ff, stop:1 #ff0000);
+}
+QSlider#HueSlider::handle:horizontal {
+    width: 12px;
+    margin: -5px 0;
+    background: #ffffff;
+    border: 2px solid #263b48;
+    border-radius: 7px;
+}
+QLineEdit#ColorHexInput {
+    font-family: Consolas, monospace;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
 QFrame#CanvasStage {
     background: #e9edf2;
 }
