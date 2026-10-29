@@ -238,80 +238,89 @@ def test_qt_artist_workspace_welcome_context_timeline_and_quick_export(tmp_path,
     window.close()
 
 
-def test_qt_integrated_workspace_no_docks_and_recoverable_sections(tmp_path,monkeypatch):
-    """A user should never have to close Colors to reach the canvas."""
-    from PySide6.QtWidgets import QDockWidget, QScrollArea
+def test_qt_dock_windows_recoverable_and_colors_not_over_canvas(tmp_path,monkeypatch):
+    """Colors and Layers are docked by default, but detachable like real windows."""
+    from PySide6.QtWidgets import QDockWidget
     from PySide6.QtCore import QPoint
     from mellowstudio.model import Document
-
     monkeypatch.setenv('XDG_DATA_HOME',str(tmp_path/'data'))
     monkeypatch.setenv('XDG_CONFIG_HOME',str(tmp_path/'config'))
     app=QApplication.instance() or QApplication([])
     window=Editor()
-    window.set_document(Document(32,32,'Creative workspace'))
-    window.resize(1250,800)
+    window.set_document(Document(32,32,'Workspace'))
+    window.resize(1300,850)
     window.show()
     app.processEvents()
     window.reset_layout()
     app.processEvents()
 
-    # The old floating and tabbed dock architecture must not survive.
-    assert window.findChildren(QDockWidget)==[]
-    assert isinstance(window.inspector_scroll,QScrollArea)
+    assert isinstance(window.palette_dock,QDockWidget)
+    assert isinstance(window.layer_dock,QDockWidget)
     assert window.palette_dock.isVisible()
     assert window.layer_dock.isVisible()
     assert window.timeline_dock.isVisible()
-    assert not window.reference_dock.isVisible()
+    assert not window.palette_dock.isFloating()
+    assert not window.layer_dock.isFloating()
     assert window.scroller.isVisible()
+    # The canvas is physically left of the color dock, never beneath it.
+    canvas_right=window.scroller.mapToGlobal(QPoint(window.scroller.width(),0)).x()
+    dock_left=window.palette_dock.mapToGlobal(QPoint(0,0)).x()
+    assert canvas_right<=dock_left+8
 
-    # Everything has its own region; the color sidebar cannot overlay the art.
-    viewport_corner=window.scroller.mapTo(window.workspace_root,QPoint(0,0))
-    inspector_corner=window.inspector_scroll.mapTo(window.workspace_root,QPoint(0,0))
-    assert viewport_corner.x()+window.scroller.width()<=inspector_corner.x()+8
-
-    # View menu is a complete escape hatch even for intentionally hidden sections.
-    color_action=window._panel_actions['Colors']
-    color_action.trigger()
+    # Closing colors is not losing it; View always has the checked toggle.
+    window.palette_dock.close()
     app.processEvents()
+    action=window._panel_actions['Colors']
     assert not window.palette_dock.isVisible()
-    assert not color_action.isChecked()
-    assert window.layer_dock.isVisible()
-    color_action.trigger()
+    assert not action.isChecked()
+    action.trigger()
     app.processEvents()
     assert window.palette_dock.isVisible()
-    assert color_action.isChecked()
+    assert action.isChecked()
+    assert window.layer_dock.isVisible()
 
-    for name in ('Colors','Layers','Preview','Reference','Timeline'):
-        window.set_panel_visible(name,False)
+    # Both separate windows can float and be returned to the default sidebar.
+    window.palette_dock.setFloating(True)
     app.processEvents()
-    assert not window.inspector_scroll.isVisible()
+    assert window.palette_dock.isFloating()
     window.reset_layout()
     app.processEvents()
-    assert window.palette_dock.isVisible()
-    assert window.layer_dock.isVisible()
-    assert window.preview_dock.isVisible()
-    assert window.timeline_dock.isVisible()
+    assert not window.palette_dock.isFloating()
+    assert window.palette_dock.isVisible() and window.layer_dock.isVisible()
+    assert not window.reference_dock.isVisible()
 
-    # F11 must preserve the exact visible sections including hidden Reference.
+    # Focus is optional and returns the previous windows, not a replacement for them.
     window.toggle_focus_mode()
     app.processEvents()
     assert not window.palette_dock.isVisible()
-    assert not window.timeline_dock.isVisible()
-    assert window.scroller.isVisible()
     window.toggle_focus_mode()
     app.processEvents()
     assert window.palette_dock.isVisible()
     assert window.layer_dock.isVisible()
-    assert window.timeline_dock.isVisible()
-    assert not window.reference_dock.isVisible()
 
-    window.set_tool('pencil')
-    app.processEvents()
-    assert window.brush_options.isVisible() and not window.dither_options.isVisible()
-    window.set_tool('dither')
-    app.processEvents()
-    assert window.brush_options.isVisible() and window.dither_options.isVisible()
-    # The fixture was intentionally created as an unsaved document; clear the
-    # synthetic dirty flag before close so CI does not block on a discard dialog.
+    # The color panel is useful without opening a blocking QColorDialog.
+    window.select_color_target(False)
+    window.color_hex.setText('#1a2b3c')
+    window.apply_hex_color()
+    assert window.foreground[:3]==(26,43,60)
+    window.color_rgb[0].setValue(100)
+    assert window.foreground[:3]==(100,43,60)
+    window.select_color_target(True)
+    window.color_hex.setText('#336699')
+    window.apply_hex_color()
+    assert window.secondary[:3]==(51,102,153)
+    assert window.foreground[:3]==(100,43,60)
+
+    window.select_color_target(False)
+    window.add_palette_color()
+    idx=window.selected_palette_index
+    assert window.doc.palette[idx]=='#642b3c'
+    window.color_hex.setText('#ddeeff')
+    window.apply_hex_color()
+    window.replace_palette_color()
+    assert window.doc.palette[idx]=='#ddeeff'
+    window.remove_palette_color()
+    assert '#ddeeff' not in window.doc.palette
+
     window.dirty=False
     window.close()
