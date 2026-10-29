@@ -311,4 +311,7 @@ def test_qt_integrated_workspace_no_docks_and_recoverable_sections(tmp_path,monk
     window.set_tool('dither')
     app.processEvents()
     assert window.brush_options.isVisible() and window.dither_options.isVisible()
+    # The fixture was intentionally created as an unsaved document; clear the
+    # synthetic dirty flag before close so CI does not block on a discard dialog.
+    window.dirty=False
     window.close()
