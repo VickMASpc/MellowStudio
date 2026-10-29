@@ -236,6 +236,15 @@ Colors is now a *real color editing panel*. It sits beside the canvas by default
 
 **Windows are still available.** Drag Colors, Layers, Preview or Reference out by its title bar to make a floating window, or dock it back. Close any panel with its X; **View → Colors / Layers / Preview / Reference** reopens it. **Ctrl+Shift+0** restores Colors and Layers next to the canvas in the default arrangement. The timeline stays below the canvas.
 
+
+## Original full docking freedom restored — Mellow 0.2.7
+
+The editor once again uses the original **fully flexible native Windows/Qt docking model** (the actual code from before PR #13 removed it). Colors, Layers, Timeline, Preview and Reference can all be **moved anywhere**, tabbed with other panels, nested, pulled into separate floating windows and closed. You're free to deliberately stack them inside the editor, too. The timeline can move and float again. The new usable Colors editor (saturation/brightness, hue, RGB, HEX and saved-palette editing) stays.
+
+**For a clear default** Colors and Layers start next to the canvas; Timeline below; optional Preview and Reference can be opened via **View**. A closed window can always be reopened through **View → Windows**. **F11** temporarily focuses the canvas and restores the entire previous dock arrangement, including tab groups. **Ctrl+Shift+0** resets the windows to the useful default, without restricting further rearrangement. A minimum usable canvas viewport and scrollable Colors controls make deliberate dense docking less painful.
+
+Normal Windows usage remains `.\dev.ps1 sync` then `.\start_windows.bat`; sync preserves your existing `.venv` and untracked artwork.
+
 ## GitHub development workflow
 
 This repository is the **single source of truth** from v0.2.0 forward. Do not unpack new versions into new folders. Make small feature branches, run tests, open PRs, and merge once green. Avoid committing generated `.venv`, caches, packaging output, or autosaves.

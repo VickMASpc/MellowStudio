@@ -1,6 +1,14 @@
 # Changelog
 
 
+## 0.2.7 — Unrestricted original Qt windows restored (2026-10-29)
+
+- Restored the actual native QMainWindow docking system from pre-PR13 commit `9edc3488`. All docking sides, tab stacking, nesting, floating and draggable Timeline work again. The restrictions introduced in 0.2.5/0.2.6 are gone.
+- Kept the newer full Colors editor (HSV field/hue slider, direct RGB and HEX input, editable saved colors); made it scrollable for shallow dock layouts instead of disabling windows.
+- Reserve a usable central canvas minimum and make F11 store/restore complete Qt dock topology. View includes native close/reopen actions and Ctrl+Shift+0 resets the layout without removing customization.
+- Explicit GUI regressions for dragging docks around the main editor, tabbing, floating, focus restore, reset and direct painting controls.
+
+
 
 ## 0.2.6 — Real dock windows and proper color editor
 

@@ -1,4 +1,4 @@
-"""Mellow Studio — native, integrated pixel-art and animation workspace."""
+"""Mellow Studio — artist-first pixel painting with full native Qt docking freedom."""
 from __future__ import annotations
 
 import json
@@ -12,10 +12,10 @@ from PySide6.QtCore import Qt, QTimer, QSettings, QByteArray, QSize, QStandardPa
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPainter, QPixmap, QImage
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QScrollArea, QDockWidget, QVBoxLayout,
-    QHBoxLayout, QGridLayout, QToolButton, QLabel, QPushButton, QListWidget,
+    QHBoxLayout, QGridLayout, QToolBar, QToolButton, QLabel, QPushButton, QListWidget,
     QListWidgetItem, QAbstractItemView, QSpinBox, QCheckBox, QInputDialog, QFileDialog,
     QMessageBox, QColorDialog, QFrame, QLineEdit, QDialog, QDialogButtonBox,
-    QFormLayout, QSlider, QMenu, QScrollBar, QSizePolicy, QSplitter
+    QFormLayout, QSlider, QMenu, QScrollBar, QSizePolicy
 )
 
 from .model import (Document, History, project_load, project_save, blank,
@@ -35,7 +35,7 @@ from .studio_theme import STUDIO_QSS
 from .cli import export as export_native
 
 APP_TITLE = 'Mellow Studio'
-VERSION = '0.2.6-dev'
+VERSION = '0.2.7-dev'
 
 
 class Swatch(QPushButton):
@@ -168,14 +168,19 @@ class Editor(QMainWindow):
         self.contiguous=True
         self.preview_playing=False
         self._focus_mode=False
-        self._panel_visibility_before_focus={}
+        self._dock_visibility_before_focus={}
+        self._dock_state_before_focus=None
         self._panel_actions={}
+        self._panels={}
         self._refreshing=False
         self.copied: tuple[Image.Image, int, int] | None=None
         self.frames_clipboard = []
         self._frame_selection_override = None
         self.setWindowTitle(APP_TITLE)
         self.resize(1370,850)
+        self.setDockOptions(QMainWindow.DockOption.AllowTabbedDocks |
+                            QMainWindow.DockOption.AllowNestedDocks |
+                            QMainWindow.DockOption.AnimatedDocks)
         self.init_ui()
         self.connect_canvas()
         self.refresh_all()
@@ -198,103 +203,32 @@ class Editor(QMainWindow):
         self.scroller.setWidget(self.canvas)
         self.scroller.setWidgetResizable(False)
         self.scroller.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Keep an actual working canvas even when the artist intentionally
+        # docks several windows along the bottom or top.
+        self.scroller.setMinimumSize(340,240)
+        self.setCentralWidget(self.scroller)
         self.build_layers()
         self.build_palette()
         self.build_timeline()
         self.build_preview()
         self.build_reference_dock()
+        # Keep the original fully-flexible dock system but a sensible initial
+        # workspace: Colors and Layers both visible; Preview/Reference optional.
+        self.preview_dock.hide()
+        self.reference_dock.hide()
+        self.resizeDocks([self.palette_dock,self.layer_dock],[365,235],
+                         Qt.Orientation.Vertical)
+        self._panels={'Colors':self.palette_dock,'Layers':self.layer_dock,
+                      'Timeline':self.timeline_dock,'Preview':self.preview_dock,
+                      'Reference':self.reference_dock}
         self.build_studio_bar()
         self.build_tool_options()
-        self.compose_workspace()
         self.set_tool('pencil')
         self.status=QLabel('Pixel (–, –)')
         self.statusBar().addPermanentWidget(self.status)
         self.zoom_label=QLabel('12×')
         self.statusBar().addPermanentWidget(self.zoom_label)
-        self.statusBar().showMessage('Mellow 41×55 ready  ·  Paint with B  ·  Animate with Ctrl+D',6500)
-
-    def compose_workspace(self):
-        """Real dockable windows, initially arranged as stable side sections."""
-        self.workspace_root=QWidget()
-        self.workspace_root.setObjectName('StudioWorkspace')
-        root=QVBoxLayout(self.workspace_root)
-        root.setContentsMargins(0,0,0,0)
-        root.setSpacing(0)
-        root.addWidget(self.studio_header)
-        root.addWidget(self.tool_options_bar)
-
-        self.canvas_stage=QWidget()
-        self.canvas_stage.setObjectName('CanvasStage')
-        stage=QVBoxLayout(self.canvas_stage)
-        stage.setContentsMargins(0,0,0,0)
-        stage.setSpacing(0)
-        stage.addWidget(self.scroller,1)
-
-        self.center_splitter=QSplitter(Qt.Orientation.Vertical)
-        self.center_splitter.setObjectName('CanvasTimelineSplitter')
-        self.center_splitter.setChildrenCollapsible(False)
-        self.center_splitter.setHandleWidth(5)
-        self.center_splitter.addWidget(self.canvas_stage)
-        self.center_splitter.addWidget(self.timeline_dock)
-        self.center_splitter.setStretchFactor(0,1)
-        self.center_splitter.setStretchFactor(1,0)
-        self.center_splitter.setSizes([700,175])
-        content=QHBoxLayout()
-        content.setContentsMargins(0,0,0,0)
-        content.setSpacing(0)
-        content.addWidget(self.tool_rail)
-        content.addWidget(self.center_splitter,1)
-        root.addLayout(content,1)
-        self.setCentralWidget(self.workspace_root)
-
-        self.setDockOptions(QMainWindow.DockOption.AllowNestedDocks |
-                            QMainWindow.DockOption.AnimatedDocks)
-        self.setDockNestingEnabled(True)
-        self._panels={
-            'Colors': self.palette_dock,
-            'Layers': self.layer_dock,
-            'Preview': self.preview_dock,
-            'Reference': self.reference_dock,
-            'Timeline': self.timeline_dock,
-        }
-        # Panels are real movable, closeable and detachable Qt windows.
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.palette_dock)
-        self.splitDockWidget(self.palette_dock,self.layer_dock,Qt.Orientation.Vertical)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.preview_dock)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.reference_dock)
-        self.preview_dock.hide()
-        self.reference_dock.hide()
-        self.resizeDocks([self.palette_dock,self.layer_dock],[360,290],
-                         Qt.Orientation.Vertical)
-
-        self._panel_actions={}
-        self.view_menu.addSeparator()
-        self.view_menu.addSection('Windows and panels')
-        for name,panel in self._panels.items():
-            if name=='Timeline':
-                action=QAction(name,self)
-                action.setCheckable(True)
-                action.setChecked(True)
-                action.toggled.connect(lambda checked:self.set_panel_visible('Timeline',checked))
-            else:
-                action=panel.toggleViewAction()
-                action.setText(name)
-            self.view_menu.addAction(action)
-            self._panel_actions[name]=action
-        self.view_menu.addSeparator()
-        self.add_action(self.view_menu,'Reset windows and panels',self.reset_layout,'Ctrl+Shift+0')
-
-    def set_panel_visible(self,name,visible):
-        if name not in self._panels:
-            return
-        panel=self._panels[name]
-        panel.setVisible(bool(visible))
-        if visible and isinstance(panel,QDockWidget):
-            panel.raise_()
-
-    def _refresh_inspector(self):
-        # Compatibility with existing refresh code; QMainWindow owns docks now.
-        pass
+        self.statusBar().showMessage('Mellow 41×55 loaded · Press Ctrl+D to duplicate a frame',6500)
 
     def connect_canvas(self):
         self.canvas.changed.connect(self.on_canvas_changed)
@@ -391,22 +325,23 @@ class Editor(QMainWindow):
         self.add_action(view,'Zoom actual logical pixels',lambda:self.canvas.set_zoom(1),'Ctrl+1')
         self.add_action(view,'Zoom to fit',self.zoom_fit,'Ctrl+0')
         self.add_action(view,'Focus canvas / restore panels',self.toggle_focus_mode,'F11')
-        self.add_action(view,'Restore default workspace',self.reset_layout)
+        self.add_action(view,'Reset windows and panels',self.reset_layout,'Ctrl+Shift+0')
         self.add_action(view,'Reference Lab…',self.open_reference_lab)
+        view.addSeparator()
+        view.addSection('Windows — close to hide; select here to reopen')
+        # Individual actions are registered by build_dock when each dock exists.
 
         help=bar.addMenu('&Help')
         self.add_action(help,'Keyboard shortcuts',self.show_shortcuts,'F1')
         self.add_action(help,'About Mellow Studio',self.about)
 
     def build_tools(self):
-        """Fixed vertical drawing rail. It is not a dock or a floating window."""
-        rail=QFrame()
-        rail.setObjectName('ToolRail')
-        rail.setFixedWidth(62)
-        tools=QVBoxLayout(rail)
-        tools.setContentsMargins(7,12,7,12)
-        tools.setSpacing(4)
-        self.tool_rail=rail
+        """Tools only; irrelevant brush settings live in the contextual inspector."""
+        tb=QToolBar('Drawing tools',self)
+        tb.setObjectName('DrawingTools')
+        tb.setMovable(False)
+        tb.setIconSize(QSize(25,25))
+        self.addToolBar(Qt.ToolBarArea.LeftToolBarArea,tb)
         self.tool_buttons={}
         self.tool_descriptions={
             'pencil':('Pencil','Paint precise logical pixels'),
@@ -425,43 +360,37 @@ class Editor(QMainWindow):
                  ('picker','I'),('line','L'),('rectangle','R'),('ellipse','O'),
                  ('marquee','M'),('move','V'),('pan','H')]
         for i,(tool,key) in enumerate(entries):
-            if i in (5,8):
-                gap=QFrame()
-                gap.setObjectName('ToolRailDivider')
-                gap.setFixedHeight(1)
-                tools.addSpacing(5)
-                tools.addWidget(gap)
-                tools.addSpacing(5)
+            if i in (5,8):tb.addSeparator()
             title,hint=self.tool_descriptions[tool]
-            button=QToolButton()
-            button.setObjectName('ToolGlyph')
-            button.setIcon(tool_icon(tool))
-            button.setIconSize(QSize(24,24))
-            button.setFixedSize(47,43)
-            button.setCheckable(True)
-            button.setAccessibleName(title)
-            button.setToolTip(f'{title} ({key})\n{hint}')
-            button.clicked.connect(lambda _,t=tool:self.set_tool(t))
-            tools.addWidget(button)
-            self.tool_buttons[tool]=button
-        tools.addStretch(1)
+            b=QToolButton()
+            b.setObjectName('ToolGlyph')
+            b.setIcon(tool_icon(tool))
+            b.setIconSize(QSize(25,25))
+            b.setFixedSize(44,44)
+            b.setCheckable(True)
+            b.setAccessibleName(title)
+            b.setToolTip(f'{title} ({key})\n{hint}')
+            b.clicked.connect(lambda _,t=tool:self.set_tool(t))
+            tb.addWidget(b)
+            self.tool_buttons[tool]=b
+        self.set_tool('pencil')
 
     def build_tool_options(self):
         """A tool-aware strip, not permanent settings clutter on the left."""
-        self.tool_options_bar=QFrame()
-        self.tool_options_bar.setObjectName('ContextBar')
-        row=QHBoxLayout(self.tool_options_bar)
-        row.setContentsMargins(16,7,16,7)
-        row.setSpacing(10)
+        self.addToolBarBreak(Qt.ToolBarArea.TopToolBarArea)
+        bar=QToolBar('Tool options',self)
+        bar.setObjectName('ToolOptionsBar')
+        bar.setMovable(False)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea,bar)
         self.tool_title=QLabel('PENCIL')
         self.tool_title.setObjectName('ToolTitle')
         self.tool_title.setMinimumWidth(80)
-        row.addWidget(self.tool_title)
+        bar.addWidget(self.tool_title)
         self.tool_hint=QLabel('Paint precise logical pixels')
         self.tool_hint.setObjectName('ToolHint')
         self.tool_hint.setMinimumWidth(185)
-        row.addWidget(self.tool_hint)
-        row.addSpacing(10)
+        bar.addWidget(self.tool_hint)
+        bar.addSeparator()
         self.brush_options=QWidget()
         size_row=QHBoxLayout(self.brush_options)
         size_row.setContentsMargins(0,0,0,0)
@@ -480,7 +409,7 @@ class Editor(QMainWindow):
         self.brush_spin.valueChanged.connect(lambda v:setattr(self,'brush_size',v))
         size_row.addWidget(self.brush_slider)
         size_row.addWidget(self.brush_spin)
-        row.addWidget(self.brush_options)
+        self.brush_options_action=bar.addWidget(self.brush_options)
 
         self.dither_options=QWidget()
         mix_row=QHBoxLayout(self.dither_options)
@@ -500,7 +429,7 @@ class Editor(QMainWindow):
         self.dither_spin.valueChanged.connect(lambda v:setattr(self,'dither_level',v))
         mix_row.addWidget(self.dither_slider)
         mix_row.addWidget(self.dither_spin)
-        row.addWidget(self.dither_options)
+        self.dither_options_action=bar.addWidget(self.dither_options)
         self.symmetry_options=QWidget()
         sym=QHBoxLayout(self.symmetry_options)
         sym.setContentsMargins(0,0,0,0)
@@ -509,14 +438,14 @@ class Editor(QMainWindow):
         sym.addWidget(self.sym_x_box);sym.addWidget(self.sym_y_box)
         self.sym_x_box.toggled.connect(lambda v:setattr(self.canvas,'sym_x',v))
         self.sym_y_box.toggled.connect(lambda v:setattr(self.canvas,'sym_y',v))
-        row.addWidget(self.symmetry_options)
+        self.symmetry_options_action=bar.addWidget(self.symmetry_options)
         self.shape_options=QWidget()
         shape=QHBoxLayout(self.shape_options)
         shape.setContentsMargins(0,0,0,0)
         self.fill_box=QCheckBox('Filled shape')
         self.fill_box.toggled.connect(lambda v:setattr(self.canvas,'filled_shapes',v))
         shape.addWidget(self.fill_box)
-        row.addWidget(self.shape_options)
+        self.shape_options_action=bar.addWidget(self.shape_options)
         self.bucket_options=QWidget()
         fill=QHBoxLayout(self.bucket_options)
         fill.setContentsMargins(0,0,0,0)
@@ -524,9 +453,9 @@ class Editor(QMainWindow):
         self.contiguous_box.setChecked(True)
         self.contiguous_box.toggled.connect(lambda v:setattr(self,'contiguous',v))
         fill.addWidget(self.contiguous_box)
-        row.addWidget(self.bucket_options)
+        self.bucket_options_action=bar.addWidget(self.bucket_options)
 
-        row.addStretch(1)
+        bar.addSeparator()
         self.primary_chip=QToolButton()
         self.primary_chip.setText('Paint')
         self.primary_chip.setToolTip('Choose paint color')
@@ -539,40 +468,59 @@ class Editor(QMainWindow):
         swap.setText('⇄')
         swap.setToolTip('Swap paint and secondary colors (X)')
         swap.clicked.connect(self.swap_colors)
-        row.addWidget(self.primary_chip)
-        row.addWidget(swap)
-        row.addWidget(self.secondary_chip)
+        bar.addWidget(self.primary_chip)
+        bar.addWidget(swap)
+        bar.addWidget(self.secondary_chip)
         self.refresh_tool_options()
 
     def refresh_tool_options(self):
-        if not hasattr(self,'tool_title'):
-            return
+        if not hasattr(self,'tool_title'):return
         title,hint=self.tool_descriptions.get(self.tool,('Pencil','Draw on the canvas'))
         self.tool_title.setText(title.upper())
         self.tool_hint.setText(hint)
         painting=self.tool in ('pencil','eraser','dither')
-        self.brush_options.setVisible(painting)
-        self.dither_options.setVisible(self.tool=='dither')
-        self.symmetry_options.setVisible(painting)
-        self.shape_options.setVisible(self.tool in ('rectangle','ellipse'))
-        self.bucket_options.setVisible(self.tool=='bucket')
+        # Embedded toolbar widgets are managed by their QWidgetAction.
+        # Hiding the widget alone is undone when Qt lays out the toolbar.
+        for action,visible in (
+            (self.brush_options_action,painting),
+            (self.dither_options_action,self.tool=='dither'),
+            (self.symmetry_options_action,painting),
+            (self.shape_options_action,self.tool in ('rectangle','ellipse')),
+            (self.bucket_options_action,self.tool=='bucket')):
+            action.setVisible(visible)
 
     def swap_colors(self):
         self.foreground,self.secondary=self.secondary,self.foreground
         self.refresh_palette()
 
     def build_dock(self,title,objectname,widget,area):
-        """A movable, floatable, closeable window whose content stays intact."""
+        """Native Qt dock: tab, split, float, move to ANY side, close and reopen."""
         dock=QDockWidget(title,self)
         dock.setObjectName(objectname)
         dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable |
                          QDockWidget.DockWidgetFeature.DockWidgetMovable |
                          QDockWidget.DockWidgetFeature.DockWidgetFloatable)
-        dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea |
-                             Qt.DockWidgetArea.RightDockWidgetArea)
-        dock.setMinimumWidth(248)
+        dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         dock.setWidget(widget)
+        self.addDockWidget(area,dock)
+        self._view_docks=getattr(self,'_view_docks',[])
+        self._view_docks.append(dock)
+        key={'PaletteDock':'Colors','LayersDock':'Layers',
+             'TimelineDock':'Timeline','PreviewDock':'Preview',
+             'ReferenceDock':'Reference'}.get(objectname,title)
+        action=dock.toggleViewAction()
+        action.setText(key)
+        self.view_menu.addAction(action)
+        self._panel_actions[key]=action
         return dock
+
+    def set_panel_visible(self,name,visible):
+        """Compatibility convenience; native QAction stays synchronized."""
+        panel=self._panels.get(name)
+        if panel is not None:
+            panel.setVisible(bool(visible))
+            if visible:
+                panel.raise_()
 
     def build_layers(self):
         root=QWidget();v=QVBoxLayout(root)
@@ -695,7 +643,16 @@ class Editor(QMainWindow):
         self.palette_remove=remove
         v.addLayout(actions)
         v.addStretch(1)
-        self.palette_dock=self.build_dock('Colors','PaletteDock',root,Qt.DockWidgetArea.RightDockWidgetArea)
+        # The scroll container keeps the entire editor accessible when the user
+        # deliberately stacks windows into a short bottom/side dock.
+        scroll=QScrollArea()
+        scroll.setObjectName('ColorPanelScroll')
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(root)
+        scroll.setMinimumHeight(96)
+        self.palette_dock=self.build_dock('Colors','PaletteDock',scroll,Qt.DockWidgetArea.RightDockWidgetArea)
+        self.splitDockWidget(self.palette_dock,self.layer_dock,Qt.Orientation.Vertical)
 
     def build_timeline(self):
         root=QWidget()
@@ -755,7 +712,7 @@ class Editor(QMainWindow):
         self.timeline.setGridSize(QSize(103,116))
         self.timeline.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.timeline.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self.timeline.setMinimumHeight(106)
+        self.timeline.setMinimumHeight(128)
         self.timeline.setMaximumHeight(149)
         self.timeline.currentRowChanged.connect(self.frame_selected)
         self.timeline.frameDropRequested.connect(self.reorder_selected_frames)
@@ -786,35 +743,33 @@ class Editor(QMainWindow):
     def build_preview(self):
         root=QWidget();v=QVBoxLayout(root)
         self.preview=QLabel()
-        self.preview.setMinimumSize(120,88)
-        self.preview.setMaximumHeight(128)
+        self.preview.setMinimumSize(175,180)
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
+        self.preview.setStyleSheet('background:#303847; border:1px solid #586176;')
         v.addWidget(self.preview)
         v.addWidget(QLabel('Native-pixel playback · per-frame timing'))
         self.preview_dock=self.build_dock('Live preview','PreviewDock',root,
                                          Qt.DockWidgetArea.RightDockWidgetArea)
 
     def build_studio_bar(self):
-        self.studio_header=QFrame()
-        self.studio_header.setObjectName('StudioHeader')
-        row=QHBoxLayout(self.studio_header)
-        row.setContentsMargins(13,7,13,7)
-        row.setSpacing(9)
+        bar=QToolBar('Studio controls',self)
+        bar.setObjectName('StudioControlBar')
+        bar.setMovable(False)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea,bar)
         home=QToolButton()
         home.setText('⌂')
         home.setToolTip('Start / recent projects  ·  Ctrl+Shift+H')
         home.clicked.connect(self.show_welcome)
-        row.addWidget(home)
+        bar.addWidget(home)
         logo=QLabel('  MELLOW  ')
         logo.setObjectName('StudioWordmark')
-        row.addWidget(logo)
-        row.addSpacing(9)
+        bar.addWidget(logo)
+        bar.addSeparator()
         self.project_label=QLabel('Untitled')
         self.project_label.setObjectName('StudioKicker')
         self.project_label.setMinimumWidth(175)
-        row.addWidget(self.project_label)
-        row.addSpacing(9)
+        bar.addWidget(self.project_label)
+        bar.addSeparator()
         for label,callback,tooltip in [
             ('↶',self.undo,'Undo  ·  Ctrl+Z'),
             ('↷',self.redo,'Redo  ·  Ctrl+Y'),
@@ -824,26 +779,26 @@ class Editor(QMainWindow):
             button.setText(label)
             button.setToolTip(tooltip)
             button.clicked.connect(callback)
-            row.addWidget(button)
+            bar.addWidget(button)
         focus=QToolButton()
         focus.setText('Focus')
         focus.setToolTip('Hide panels to paint freely  ·  F11')
         focus.clicked.connect(self.toggle_focus_mode)
-        row.addWidget(focus)
+        bar.addWidget(focus)
         spacer=QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Preferred)
-        row.addWidget(spacer)
+        bar.addWidget(spacer)
         save=QToolButton()
         save.setText('Save')
         save.setToolTip('Save project  ·  Ctrl+S')
         save.clicked.connect(self.save_project)
-        row.addWidget(save)
+        bar.addWidget(save)
         export=QToolButton()
         export.setText('Export…')
         export.setObjectName('PrimaryAction')
         export.setToolTip('Export animation or artwork  ·  Ctrl+E')
         export.clicked.connect(self.quick_export)
-        row.addWidget(export)
+        bar.addWidget(export)
 
     def build_reference_dock(self):
         root=QWidget();layout=QVBoxLayout(root)
@@ -865,6 +820,7 @@ class Editor(QMainWindow):
         layout.addStretch()
         self.reference_dock=self.build_dock('Reference Lab','ReferenceDock',root,
                                             Qt.DockWidgetArea.RightDockWidgetArea)
+        self.tabifyDockWidget(self.preview_dock,self.reference_dock)
 
     def refresh_reference_panel(self):
         if not hasattr(self,'source_info'):return
@@ -1945,31 +1901,39 @@ class Editor(QMainWindow):
         geometry=self.settings.value('window/geometry')
         if geometry:
             self.restoreGeometry(geometry)
-        sizes=self.settings.value('workspace/timeline')
-        if sizes:
-            self.center_splitter.restoreState(sizes)
-        # Ignore old layouts that previously trapped or overlapped the canvas.
-        dock_state=self.settings.value('workspace/dock_v3')
-        if dock_state:
-            self.restoreState(dock_state,3)
+        # Never resurrect the broken 0.2.5/0.2.6 layouts. User customizations
+        # in this restored, fully-flexible Qt dock model persist across launches.
+        state=self.settings.value('window/state_full_docks_v1')
+        if state and not self.restoreState(state,1):
+            self.reset_layout()
 
     def toggle_focus_mode(self):
+        """Temporary full canvas; preserve EXACT dock topology and tab groups."""
         if not self._focus_mode:
-            self._panel_visibility_before_focus={
-                name:not panel.isHidden() for name,panel in self._panels.items()}
-            for name in self._panels:
-                self.set_panel_visible(name,False)
+            self._dock_state_before_focus=self.saveState(1)
+            self._dock_visibility_before_focus={
+                dock.objectName():not dock.isHidden() for dock in self._view_docks}
+            for dock in self._view_docks:
+                dock.hide()
             self._focus_mode=True
+            self.statusBar().showMessage('Canvas focus · F11 restores your windows',3500)
         else:
-            for name,visible in self._panel_visibility_before_focus.items():
-                self.set_panel_visible(name,visible)
+            restored=(self._dock_state_before_focus is not None and
+                      self.restoreState(self._dock_state_before_focus,1))
+            if not restored:
+                for dock in self._view_docks:
+                    dock.setVisible(self._dock_visibility_before_focus.get(
+                        dock.objectName(),False))
             self._focus_mode=False
+            self._dock_state_before_focus=None
+            self.statusBar().showMessage('Dock windows and tabs restored',2200)
 
     def reset_layout(self):
-        """Restore windows into visible, non-overlapping sidebar sections."""
+        """Restore a useful default, without disabling any future rearrangement."""
         self._focus_mode=False
-        for dock in (self.palette_dock,self.layer_dock,self.preview_dock,
-                     self.reference_dock):
+        self._dock_state_before_focus=None
+        # Detach old tab/split groups before establishing the default.
+        for dock in self._view_docks:
             if dock.isFloating():
                 dock.setFloating(False)
             self.removeDockWidget(dock)
@@ -1977,22 +1941,21 @@ class Editor(QMainWindow):
         self.splitDockWidget(self.palette_dock,self.layer_dock,Qt.Orientation.Vertical)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.preview_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.reference_dock)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,self.timeline_dock)
         self.palette_dock.show()
         self.layer_dock.show()
         self.preview_dock.hide()
         self.reference_dock.hide()
         self.timeline_dock.show()
-        self.center_splitter.setSizes([700,175])
-        self.resizeDocks([self.palette_dock,self.layer_dock],[360,290],
+        self.resizeDocks([self.palette_dock,self.layer_dock],[365,235],
                          Qt.Orientation.Vertical)
-        self.statusBar().showMessage('Colors and Layers restored on the right',3000)
+        self.statusBar().showMessage('All dock positions reset; Colors and Layers visible',4000)
 
     def closeEvent(self,event):
         if not self.confirm_discard():
             event.ignore();return
         self.settings.setValue('window/geometry',self.saveGeometry())
-        self.settings.setValue('workspace/dock_v3',self.saveState(3))
-        self.settings.setValue('workspace/timeline',self.center_splitter.saveState())
+        self.settings.setValue('window/state_full_docks_v1',self.saveState(1))
         if not self.dirty and self.canvas.floating is None:
             self.recovery.discard_token(self.recovery.token_for(
                 self.file_path, self._recovery_session))
@@ -2012,8 +1975,8 @@ class Editor(QMainWindow):
           'Ctrl+N/O/S new/open/save · Ctrl+I measured import · Ctrl+Alt+R Reference Lab · Ctrl+E export PNG.\n'
           'G show grid · Shift+O onion skin · Ctrl+mouse wheel zoom · middle drag pan · '
           '[ and ] brush size · right mouse secondary color.\n\n'
-          'Colors and Layers are movable windows. View reopens closed ones; '
-           'Ctrl+Shift+0 resets the whole workspace. F11 focuses on the canvas.')
+          'Panels can float, tab, stack, and dock on any side, including the timeline. '
+           'View reopens hidden windows; Ctrl+Shift+0 resets layout; F11 focuses canvas.')
 
     def about(self):
         QMessageBox.about(self,'About Mellow Studio',
