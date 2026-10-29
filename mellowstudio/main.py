@@ -11,7 +11,7 @@ from PIL import Image, ImageOps
 from PySide6.QtCore import Qt, QTimer, QSettings, QByteArray, QSize, QStandardPaths, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPainter, QPixmap, QImage
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QScrollArea, QVBoxLayout,
+    QApplication, QMainWindow, QWidget, QScrollArea, QDockWidget, QVBoxLayout,
     QHBoxLayout, QGridLayout, QToolButton, QLabel, QPushButton, QListWidget,
     QListWidgetItem, QAbstractItemView, QSpinBox, QCheckBox, QInputDialog, QFileDialog,
     QMessageBox, QColorDialog, QFrame, QLineEdit, QDialog, QDialogButtonBox,
@@ -30,6 +30,7 @@ from .welcome import WelcomeDialog
 from .recent import tidy_recent
 from .export_ui import ExportDialog
 from .tool_icons import tool_icon
+from .color_controls import SaturationValueField
 from .studio_theme import STUDIO_QSS
 from .cli import export as export_native
 
@@ -213,7 +214,7 @@ class Editor(QMainWindow):
         self.statusBar().showMessage('Mellow 41×55 ready  ·  Paint with B  ·  Animate with Ctrl+D',6500)
 
     def compose_workspace(self):
-        """One window, fixed regions. No dock stacking, dragging, or floating panels."""
+        """Real dockable windows, initially arranged as stable side sections."""
         self.workspace_root=QWidget()
         self.workspace_root.setObjectName('StudioWorkspace')
         root=QVBoxLayout(self.workspace_root)
@@ -237,44 +238,18 @@ class Editor(QMainWindow):
         self.center_splitter.addWidget(self.timeline_dock)
         self.center_splitter.setStretchFactor(0,1)
         self.center_splitter.setStretchFactor(1,0)
-        self.center_splitter.setSizes([690,174])
-
-        inspector=QWidget()
-        inspector.setObjectName('InspectorSections')
-        stack=QVBoxLayout(inspector)
-        stack.setContentsMargins(10,12,10,10)
-        stack.setSpacing(10)
-        # Color and Layers are independently present, not mutually exclusive tabs.
-        stack.addWidget(self.palette_dock)
-        stack.addWidget(self.layer_dock,1)
-        stack.addWidget(self.preview_dock)
-        stack.addWidget(self.reference_dock)
-        stack.addStretch(0)
-        self.inspector_scroll=QScrollArea()
-        self.inspector_scroll.setObjectName('InspectorScroll')
-        self.inspector_scroll.setWidgetResizable(True)
-        self.inspector_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.inspector_scroll.setWidget(inspector)
-        self.inspector_scroll.setMinimumWidth(252)
-
-        self.workspace_splitter=QSplitter(Qt.Orientation.Horizontal)
-        self.workspace_splitter.setObjectName('WorkspaceSplitter')
-        self.workspace_splitter.setHandleWidth(5)
-        self.workspace_splitter.setChildrenCollapsible(False)
-        self.workspace_splitter.addWidget(self.center_splitter)
-        self.workspace_splitter.addWidget(self.inspector_scroll)
-        self.workspace_splitter.setStretchFactor(0,1)
-        self.workspace_splitter.setStretchFactor(1,0)
-        self.workspace_splitter.setSizes([1000,292])
-
+        self.center_splitter.setSizes([700,175])
         content=QHBoxLayout()
         content.setContentsMargins(0,0,0,0)
         content.setSpacing(0)
         content.addWidget(self.tool_rail)
-        content.addWidget(self.workspace_splitter,1)
+        content.addWidget(self.center_splitter,1)
         root.addLayout(content,1)
         self.setCentralWidget(self.workspace_root)
 
+        self.setDockOptions(QMainWindow.DockOption.AllowNestedDocks |
+                            QMainWindow.DockOption.AnimatedDocks)
+        self.setDockNestingEnabled(True)
         self._panels={
             'Colors': self.palette_dock,
             'Layers': self.layer_dock,
@@ -282,38 +257,44 @@ class Editor(QMainWindow):
             'Reference': self.reference_dock,
             'Timeline': self.timeline_dock,
         }
+        # Panels are real movable, closeable and detachable Qt windows.
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.palette_dock)
+        self.splitDockWidget(self.palette_dock,self.layer_dock,Qt.Orientation.Vertical)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.preview_dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.reference_dock)
+        self.preview_dock.hide()
+        self.reference_dock.hide()
+        self.resizeDocks([self.palette_dock,self.layer_dock],[360,290],
+                         Qt.Orientation.Vertical)
+
+        self._panel_actions={}
         self.view_menu.addSeparator()
-        self.view_menu.addSection('Workspace sections')
+        self.view_menu.addSection('Windows and panels')
         for name,panel in self._panels.items():
-            action=QAction(name,self)
-            action.setCheckable(True)
-            action.setChecked(name!='Reference')
-            action.toggled.connect(lambda checked,n=name:self.set_panel_visible(n,checked))
+            if name=='Timeline':
+                action=QAction(name,self)
+                action.setCheckable(True)
+                action.setChecked(True)
+                action.toggled.connect(lambda checked:self.set_panel_visible('Timeline',checked))
+            else:
+                action=panel.toggleViewAction()
+                action.setText(name)
             self.view_menu.addAction(action)
             self._panel_actions[name]=action
-        self.reference_dock.hide()
         self.view_menu.addSeparator()
-        self.add_action(self.view_menu,'Show everything',self.reset_layout,'Ctrl+Shift+0')
-        self._refresh_inspector()
+        self.add_action(self.view_menu,'Reset windows and panels',self.reset_layout,'Ctrl+Shift+0')
 
     def set_panel_visible(self,name,visible):
-        """Sections can always be recovered through View; no close buttons."""
         if name not in self._panels:
             return
-        self._panels[name].setVisible(visible)
-        action=self._panel_actions.get(name)
-        if action and action.isChecked()!=visible:
-            action.blockSignals(True)
-            action.setChecked(visible)
-            action.blockSignals(False)
-        self._refresh_inspector()
+        panel=self._panels[name]
+        panel.setVisible(bool(visible))
+        if visible and isinstance(panel,QDockWidget):
+            panel.raise_()
 
     def _refresh_inspector(self):
-        if not hasattr(self,'inspector_scroll'):
-            return
-        inspector_visible=any(not self._panels[name].isHidden()
-                              for name in ('Colors','Layers','Preview','Reference'))
-        self.inspector_scroll.setVisible(inspector_visible)
+        # Compatibility with existing refresh code; QMainWindow owns docks now.
+        pass
 
     def connect_canvas(self):
         self.canvas.changed.connect(self.on_canvas_changed)
@@ -581,20 +562,17 @@ class Editor(QMainWindow):
         self.refresh_palette()
 
     def build_dock(self,title,objectname,widget,area):
-        """Compatibility name for an inline, non-closable studio section."""
-        panel=QFrame()
-        panel.setObjectName(objectname)
-        panel.setProperty('studioSection',True)
-        content=QVBoxLayout(panel)
-        content.setContentsMargins(12,10,12,10)
-        content.setSpacing(7)
-        label=QLabel(title.upper())
-        label.setObjectName('SectionHeader')
-        label.setAccessibleName(title+' section')
-        content.addWidget(label)
-        content.addWidget(widget,1)
-        panel.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Preferred)
-        return panel
+        """A movable, floatable, closeable window whose content stays intact."""
+        dock=QDockWidget(title,self)
+        dock.setObjectName(objectname)
+        dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable |
+                         QDockWidget.DockWidgetFeature.DockWidgetMovable |
+                         QDockWidget.DockWidgetFeature.DockWidgetFloatable)
+        dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea |
+                             Qt.DockWidgetArea.RightDockWidgetArea)
+        dock.setMinimumWidth(248)
+        dock.setWidget(widget)
+        return dock
 
     def build_layers(self):
         root=QWidget();v=QVBoxLayout(root)
@@ -1801,45 +1779,53 @@ class Editor(QMainWindow):
         geometry=self.settings.value('window/geometry')
         if geometry:
             self.restoreGeometry(geometry)
-        # Old QDockWidget saved layout is intentionally discarded.
-        for splitter,key in ((self.workspace_splitter,'workspace/splitter'),
-                             (self.center_splitter,'workspace/timeline')):
-            state=self.settings.value(key)
-            if state:
-                splitter.restoreState(state)
-        self._refresh_inspector()
+        sizes=self.settings.value('workspace/timeline')
+        if sizes:
+            self.center_splitter.restoreState(sizes)
+        # Ignore old layouts that previously trapped or overlapped the canvas.
+        dock_state=self.settings.value('workspace/dock_v3')
+        if dock_state:
+            self.restoreState(dock_state,3)
 
     def toggle_focus_mode(self):
-        """Focus on drawing without forgetting which sections were open."""
         if not self._focus_mode:
             self._panel_visibility_before_focus={
                 name:not panel.isHidden() for name,panel in self._panels.items()}
-            for name in ('Colors','Layers','Preview','Reference','Timeline'):
+            for name in self._panels:
                 self.set_panel_visible(name,False)
             self._focus_mode=True
-            self.statusBar().showMessage('Canvas focus · F11 restores your workspace',3500)
         else:
             for name,visible in self._panel_visibility_before_focus.items():
                 self.set_panel_visible(name,visible)
             self._focus_mode=False
-            self.statusBar().showMessage('Workspace restored',2200)
 
     def reset_layout(self):
-        """Restore one useful, consistent creative workspace at any time."""
+        """Restore windows into visible, non-overlapping sidebar sections."""
         self._focus_mode=False
-        for name in ('Colors','Layers','Preview','Timeline'):
-            self.set_panel_visible(name,True)
-        self.set_panel_visible('Reference',False)
-        self.workspace_splitter.setSizes([1000,292])
-        self.center_splitter.setSizes([690,174])
-        self._refresh_inspector()
-        self.statusBar().showMessage('Default workspace restored',3000)
+        for dock in (self.palette_dock,self.layer_dock,self.preview_dock,
+                     self.reference_dock):
+            if dock.isFloating():
+                dock.setFloating(False)
+            self.removeDockWidget(dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.palette_dock)
+        self.splitDockWidget(self.palette_dock,self.layer_dock,Qt.Orientation.Vertical)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.preview_dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.reference_dock)
+        self.palette_dock.show()
+        self.layer_dock.show()
+        self.preview_dock.hide()
+        self.reference_dock.hide()
+        self.timeline_dock.show()
+        self.center_splitter.setSizes([700,175])
+        self.resizeDocks([self.palette_dock,self.layer_dock],[360,290],
+                         Qt.Orientation.Vertical)
+        self.statusBar().showMessage('Colors and Layers restored on the right',3000)
 
     def closeEvent(self,event):
         if not self.confirm_discard():
             event.ignore();return
         self.settings.setValue('window/geometry',self.saveGeometry())
-        self.settings.setValue('workspace/splitter',self.workspace_splitter.saveState())
+        self.settings.setValue('workspace/dock_v3',self.saveState(3))
         self.settings.setValue('workspace/timeline',self.center_splitter.saveState())
         if not self.dirty and self.canvas.floating is None:
             self.recovery.discard_token(self.recovery.token_for(
@@ -1860,7 +1846,7 @@ class Editor(QMainWindow):
           'Ctrl+N/O/S new/open/save · Ctrl+I measured import · Ctrl+Alt+R Reference Lab · Ctrl+E export PNG.\n'
           'G show grid · Shift+O onion skin · Ctrl+mouse wheel zoom · middle drag pan · '
           '[ and ] brush size · right mouse secondary color.\n\n'
-          'Colors and Layers live beside the canvas. View restores hidden sections; '
+          'Colors and Layers are movable windows. View reopens closed ones; '
            'Ctrl+Shift+0 resets the whole workspace. F11 focuses on the canvas.')
 
     def about(self):
