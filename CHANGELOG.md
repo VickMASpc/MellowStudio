@@ -1,5 +1,12 @@
 # Changelog
 
+## Windows update fix — no more repeated reinstall (2026-10-29)
+
+- Corrected `dev.ps1 sync` to fetch the newest `main` and replace only tracked Mellow source, preserving the existing `.venv`, ordinary local artwork, exports, ignored files, and separate branches.
+- Removed the unintended `git clean -ffdx` and automatic local-branch deletion. This prevents an update from triggering a fresh Python dependency installation on every run.
+- Added a Windows integration regression with a dirty working tree, unpushed commit and persistent virtual environment, including two consecutive updates.
+
+
 
 ## Windows bootstrap repair — pip-less environments (2026-10-29)
 

@@ -52,7 +52,7 @@ jobs:
           $errors = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'scripts/sync_windows.ps1'), [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors | Out-String | Write-Error; exit 1 }
-      - name: Exercise destructive force-sync with an offline Git fixture
+      - name: Exercise code-only sync preserving .venv, art and branches
         if: runner.os == 'Windows' && matrix.python == '3.11'
         shell: pwsh
         run: pwsh -NoProfile -File tests/test_force_sync_windows.ps1

@@ -1,6 +1,6 @@
 # Windows integration test against a LOCAL bare remote: no GitHub/network calls.
 # The checkout's literal origin is the expected GitHub URL; Git insteadOf safely
-# reroutes fetches to the test bare repo. Exercises real Git reset and clean behavior.
+# reroutes fetches to the test bare repo. Exercises tracked-code reset while preserving the venv, art and local branches.
 $ErrorActionPreference = 'Stop'
 $fixture = Join-Path ([System.IO.Path]::GetTempPath()) ('mellow-sync-' + [guid]::NewGuid().ToString('N'))
 $remote = Join-Path $fixture 'remote.git'
@@ -50,6 +50,8 @@ try {
     & git -C $work add version.txt
     & git -C $work commit -m 'local commit to discard' | Out-Null
     Check 'Create local commit'
+    $localCommit = (& git -C $work rev-parse HEAD).Trim()
+    Check 'Remember local-only commit'
     Set-Content (Join-Path $work 'version.txt') 'uncommitted changes'
     Set-Content (Join-Path $work 'untracked-art.png') 'temporary'
     New-Item -ItemType Directory -Path (Join-Path $work '.venv') | Out-Null
@@ -72,13 +74,31 @@ try {
     $version = (Get-Content (Join-Path $work 'version.txt') -Raw).Trim()
     $branches = @(& git -C $work branch --format='%(refname:short)')
     $remaining = @(& git -C $work status --porcelain --untracked-files=all)
+    $localBranchHead = (& git -C $work rev-parse personal-work).Trim()
     if ($branch -ne 'main' -or $revision -ne $remoteRevision -or $version -ne 'NEW REMOTE') {
         throw 'The local checkout did not become the newest remote main.'
     }
-    if ($branches.Count -ne 1 -or $branches[0] -ne 'main') { throw 'Stale local branches remain.' }
-    if ($remaining.Count -gt 0) { throw 'The checkout still has local file changes.' }
+    if ($branches -notcontains 'personal-work' -or $branches -notcontains 'main') {
+        throw 'Sync wrongly deleted a local branch.'
+    }
+    if ($localBranchHead -ne $localCommit) { throw 'Sync discarded a local-only commit.' }
     foreach ($name in @('untracked-art.png','.venv','nested')) {
-        if (Test-Path (Join-Path $work $name)) { throw "Force sync left $name behind." }
+        if (-not (Test-Path (Join-Path $work $name))) { throw "Sync deleted local asset: $name." }
+    }
+    if ((Get-Content (Join-Path $work '.venv/python.exe') -Raw).Trim() -ne 'cached environment') {
+        throw 'Sync modified the installed environment.'
+    }
+    if ((Get-Content (Join-Path $work 'untracked-art.png') -Raw).Trim() -ne 'temporary') {
+        throw 'Sync modified untracked art.'
+    }
+    # Untracked local art and ignored venv are intentionally still reported by Git.
+    if (-not (($remaining -join "`n") -match 'untracked-art\.png')) {
+        throw 'Expected local asset to remain untracked.'
+    }
+    & pwsh -NoProfile -File (Join-Path $work 'scripts/sync_windows.ps1')
+    Check 'Idempotent second sync'
+    if (-not (Test-Path (Join-Path $work '.venv/python.exe'))) {
+        throw 'Second sync deleted the environment.'
     }
 
     # Do not mistake a subdirectory of the checkout for a second root.
@@ -103,7 +123,7 @@ try {
     if ((Get-Content (Join-Path $work 'version.txt') -Raw).Trim() -ne 'keep me') {
         throw 'Failed preflight destroyed local edits.'
     }
-    Write-Host 'Force-sync integration: spaces/parentheses root, nested checkout refusal, and all destructive checks passed.'
+    Write-Host 'Safe-sync integration: latest code installed; .venv, artwork, branches and local commits preserved; invalid origin refused.'
 } finally {
     if (Test-Path $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction SilentlyContinue }
 }

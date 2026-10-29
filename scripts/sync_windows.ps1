@@ -1,6 +1,6 @@
-# FORCE REFRESH. Destructive by design: local edits, untracked/ignored files,
-# virtual environment and local branches are erased. Keeps .git and remote history.
-# Fetch must succeed and the origin must match before any local data is deleted.
+# UPDATE LOCAL CODE ONLY. Fetch first, then replace tracked files with origin/main.
+# Preserve .venv, untracked artwork, ignored assets and unrelated local branches.
+# No git clean: deleting the user's working environment was a serious product bug.
 [CmdletBinding()]
 param()
 
@@ -48,32 +48,19 @@ try {
     & git show-ref --verify --quiet refs/remotes/origin/main
     Assert-Git 'Finding origin/main'
 
-    Write-Warning 'FORCE SYNC: deleting local edits, untracked AND ignored files (including .venv and unsaved projects stored here), and local branches. Remote GitHub files are NOT deleted.'
-    # -B moves/creates main directly at the freshly fetched remote tip;
-    # -f discards conflicting working-tree and index edits, even on another branch.
+    Write-Host '[Mellow] Updating Mellow code to latest origin/main...' -ForegroundColor Cyan
+    # Tracked source files must match GitHub, even if the user accidentally
+    # edited them or has an old local commit. Keep unrelated working files.
+    # This switches to main, resets tracked code and never calls git clean.
     & git checkout --force -B main refs/remotes/origin/main
-    Assert-Git 'Replacing local main'
+    Assert-Git 'Switching to current main'
     & git reset --hard refs/remotes/origin/main
-    Assert-Git 'Resetting tracked files'
-    # Two -f flags include nested repositories, -x includes .gitignore entries.
-    # The primary .git directory is deliberately preserved by Git.
-    & git clean -ffdx
-    Assert-Git 'Removing all untracked and ignored files'
-
-    # Obsolete local branches cause confusion even after GitHub removes the remote ones.
-    # This is intentionally destructive: user explicitly chose force-sync.
-    $branches = @(& git for-each-ref '--format=%(refname:short)' refs/heads)
-    Assert-Git 'Listing local branches'
-    foreach ($name in $branches) {
-        if (-not $name -or $name -eq 'main') { continue }
-        & git branch -D -- $name
-        Assert-Git "Deleting local branch '$name'"
-    }
+    Assert-Git 'Updating tracked code'
 
     $revision = (& git rev-parse --short HEAD).Trim()
     Assert-Git 'Reading updated revision'
-    Write-Host "[Mellow] Ready: latest origin/main at $revision. Local checkout is clean." -ForegroundColor Green
-    Write-Host '[Mellow] .venv was removed; start_windows.bat will recreate it as needed.' -ForegroundColor Cyan
+    Write-Host "[Mellow] Updated to GitHub main at $revision." -ForegroundColor Green
+    Write-Host '[Mellow] Kept .venv, artwork, exports and local branches. No dependency reinstall required.' -ForegroundColor Cyan
     exit 0
 } catch {
     Write-Error "[Mellow] Force sync failed: $($_.Exception.Message)"
