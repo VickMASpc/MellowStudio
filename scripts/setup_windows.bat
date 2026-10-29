@@ -26,32 +26,41 @@ if errorlevel 1 (
   )
 )
 
+REM Qt must match the project's pin AND the native DLL imports must work.
+REM An installed top-level PySide6 package alone proves neither property.
 ".venv\Scripts\python.exe" "scripts\check_qt_windows.py" --quiet >nul 2>&1
 if not errorlevel 1 exit /b 0
 
-echo [Mellow] The Qt interface DLLs are not loading. Python itself is running.
-REM Attempt a single focused Qt-package repair per environment. Do not reinstall
-REM Python, numpy, Pillow or other editor dependencies. Avoid a download loop.
-if not exist ".venv\.mellow_qt_repair_attempted" (
-  echo [Mellow] Repairing Qt packages in the existing .venv (one-time attempt)...
-  ".venv\Scripts\python.exe" -m pip install --force-reinstall "PySide6==6.10.2" "PySide6_Essentials==6.10.2" "PySide6_Addons==6.10.2" "shiboken6==6.10.2"
-  if errorlevel 1 (
-    echo [Mellow] Qt package repair failed. The installed environment was not deleted.
-    exit /b 1
-  )
-  > ".venv\.mellow_qt_repair_attempted" echo Qt repair attempted
+".venv\Scripts\python.exe" "scripts\check_qt_windows.py" --versions-only --quiet >nul 2>&1
+if errorlevel 1 (
+  echo [Mellow] Found mismatched Qt packages; aligning them to Mellow's tested version...
+) else (
+  echo [Mellow] Qt package versions match, but a native Qt DLL cannot load.
+)
+REM This marker is specific to the targeted Qt version. The old generic marker
+REM from previous buggy bootstrap releases is intentionally ignored.
+REM Keep the existing Python environment and unrelated packages intact.
+if exist ".venv\.mellow_qt_repair_6_10_2" (
+  echo [Mellow] Qt was already repaired once. Not downloading again without a diagnosis.
+  ".venv\Scripts\python.exe" "scripts\check_qt_windows.py"
+  exit /b 1
 )
 
+echo [Mellow] Repairing only the Qt bindings in your existing .venv...
+".venv\Scripts\python.exe" -m pip install --force-reinstall "PySide6==6.10.2" "PySide6_Essentials==6.10.2" "PySide6_Addons==6.10.2" "shiboken6==6.10.2"
+if errorlevel 1 (
+  echo [Mellow] Qt package installation failed. No environment or user files were deleted.
+  exit /b 1
+)
+> ".venv\.mellow_qt_repair_6_10_2" echo Qt bindings checked / repair attempted
 ".venv\Scripts\python.exe" "scripts\check_qt_windows.py" --quiet >nul 2>&1
 if not errorlevel 1 (
-  echo [Mellow] Qt was repaired successfully.
+  echo [Mellow] Qt bindings now match and load correctly.
   exit /b 0
 )
+
 echo.
-echo [Mellow] Qt still cannot load. The missing DLL may be a Windows runtime
-echo [Mellow] or an incompatible DLL from another installed Qt application.
+echo [Mellow] Qt still cannot load after its targeted package repair.
 ".venv\Scripts\python.exe" "scripts\check_qt_windows.py"
-echo.
-echo [Mellow] Read the diagnostics above. Mellow has NOT deleted your environment.
-echo [Mellow] Do not reinstall Python to resolve this error.
+echo [Mellow] The native DLL failure requires diagnosis. Python was not replaced.
 exit /b 1
