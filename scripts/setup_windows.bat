@@ -34,12 +34,12 @@ REM Attempt a single focused Qt-package repair per environment. Do not reinstall
 REM Python, numpy, Pillow or other editor dependencies. Avoid a download loop.
 if not exist ".venv\.mellow_qt_repair_attempted" (
   echo [Mellow] Repairing Qt packages in the existing .venv (one-time attempt)...
-  > ".venv\.mellow_qt_repair_attempted" echo Qt repair attempted
   ".venv\Scripts\python.exe" -m pip install --force-reinstall "PySide6==6.10.2" "PySide6_Essentials==6.10.2" "PySide6_Addons==6.10.2" "shiboken6==6.10.2"
   if errorlevel 1 (
     echo [Mellow] Qt package repair failed. The installed environment was not deleted.
     exit /b 1
   )
+  > ".venv\.mellow_qt_repair_attempted" echo Qt repair attempted
 )
 
 ".venv\Scripts\python.exe" "scripts\check_qt_windows.py" --quiet >nul 2>&1
