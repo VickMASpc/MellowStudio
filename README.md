@@ -221,6 +221,13 @@ For a diagnostic without reinstalling anything, run:
 
 This prints the actual Qt package versions, file locations and Windows runtime DLL loadability if QtCore cannot import. Missing system DLLs or conflicting native libraries require a separate diagnosis; Mellow does not repeatedly wipe/reinstall dependencies.
 
+
+### Existing Python 3.14 environment with stale Qt bindings
+
+For Mellow 0.2.5 the project requires `PySide6==6.10.2`. On a previously repaired machine the installed PySide6 and shiboken6 packages may still be 6.12.0: merely being installed does **not** mean they satisfy Mellow's pin or that QtCore's native DLL can load. The corrected launcher verifies all four binding versions *and* QtCore, QtGui and QtWidgets, and repairs only the Qt packages once if necessary, leaving system Python, the root `.venv`, Pillow, NumPy and local art intact.
+
+To inspect the environment without changing it: `.\.venv\Scripts\python.exe scripts\check_qt_windows.py`. A 6.10.2 metadata match is necessary but not sufficient: native Qt imports must also pass. Qt's 6.10.2 PyPI release supports Python 3.14; no system Python reinstall is called for by a version mismatch alone. The specific missing dependent DLL remains unconfirmed until actual laptop validation.
+
 ## GitHub development workflow
 
 This repository is the **single source of truth** from v0.2.0 forward. Do not unpack new versions into new folders. Make small feature branches, run tests, open PRs, and merge once green. Avoid committing generated `.venv`, caches, packaging output, or autosaves.
