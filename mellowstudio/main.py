@@ -1,4 +1,4 @@
-"""Mellow Studio — native, dockable Windows-first pixel animation workstation."""
+"""Mellow Studio — native, integrated pixel-art and animation workspace."""
 from __future__ import annotations
 
 import json
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QGridLayout, QToolBar, QToolButton, QLabel, QPushButton, QListWidget,
     QListWidgetItem, QAbstractItemView, QSpinBox, QCheckBox, QInputDialog, QFileDialog,
     QMessageBox, QColorDialog, QFrame, QLineEdit, QDialog, QDialogButtonBox,
-    QFormLayout, QSlider, QMenu, QScrollBar, QSizePolicy
+    QFormLayout, QSlider, QMenu, QScrollBar, QSizePolicy, QSplitter
 )
 
 from .model import (Document, History, project_load, project_save, blank,
@@ -167,16 +167,14 @@ class Editor(QMainWindow):
         self.contiguous=True
         self.preview_playing=False
         self._focus_mode=False
-        self._dock_visibility_before_focus={}
+        self._panel_visibility_before_focus={}
+        self._panel_actions={}
         self._refreshing=False
         self.copied: tuple[Image.Image, int, int] | None=None
         self.frames_clipboard = []
         self._frame_selection_override = None
         self.setWindowTitle(APP_TITLE)
         self.resize(1370,850)
-        self.setDockOptions(QMainWindow.DockOption.AllowTabbedDocks |
-                            QMainWindow.DockOption.AllowNestedDocks |
-                            QMainWindow.DockOption.AnimatedDocks)
         self.init_ui()
         self.connect_canvas()
         self.refresh_all()
@@ -199,8 +197,6 @@ class Editor(QMainWindow):
         self.scroller.setWidget(self.canvas)
         self.scroller.setWidgetResizable(False)
         self.scroller.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.scroller.setStyleSheet('QScrollArea {background:#202735; border:0px;}')
-        self.setCentralWidget(self.scroller)
         self.build_layers()
         self.build_palette()
         self.build_timeline()
@@ -208,12 +204,116 @@ class Editor(QMainWindow):
         self.build_reference_dock()
         self.build_studio_bar()
         self.build_tool_options()
+        self.compose_workspace()
         self.set_tool('pencil')
         self.status=QLabel('Pixel (–, –)')
         self.statusBar().addPermanentWidget(self.status)
         self.zoom_label=QLabel('12×')
         self.statusBar().addPermanentWidget(self.zoom_label)
-        self.statusBar().showMessage('Mellow 41×55 loaded · Press Ctrl+D to duplicate a frame',6500)
+        self.statusBar().showMessage('Mellow 41×55 ready  ·  Paint with B  ·  Animate with Ctrl+D',6500)
+
+    def compose_workspace(self):
+        """One window, fixed regions. No dock stacking, dragging, or floating panels."""
+        self.workspace_root=QWidget()
+        self.workspace_root.setObjectName('StudioWorkspace')
+        root=QVBoxLayout(self.workspace_root)
+        root.setContentsMargins(0,0,0,0)
+        root.setSpacing(0)
+        root.addWidget(self.studio_header)
+        root.addWidget(self.tool_options_bar)
+
+        self.canvas_stage=QWidget()
+        self.canvas_stage.setObjectName('CanvasStage')
+        stage=QVBoxLayout(self.canvas_stage)
+        stage.setContentsMargins(0,0,0,0)
+        stage.setSpacing(0)
+        stage.addWidget(self.scroller,1)
+
+        self.center_splitter=QSplitter(Qt.Orientation.Vertical)
+        self.center_splitter.setObjectName('CanvasTimelineSplitter')
+        self.center_splitter.setChildrenCollapsible(False)
+        self.center_splitter.setHandleWidth(5)
+        self.center_splitter.addWidget(self.canvas_stage)
+        self.center_splitter.addWidget(self.timeline_dock)
+        self.center_splitter.setStretchFactor(0,1)
+        self.center_splitter.setStretchFactor(1,0)
+        self.center_splitter.setSizes([690,174])
+
+        inspector=QWidget()
+        inspector.setObjectName('InspectorSections')
+        stack=QVBoxLayout(inspector)
+        stack.setContentsMargins(10,12,10,10)
+        stack.setSpacing(10)
+        # Color and Layers are independently present, not mutually exclusive tabs.
+        stack.addWidget(self.palette_dock)
+        stack.addWidget(self.layer_dock,1)
+        stack.addWidget(self.preview_dock)
+        stack.addWidget(self.reference_dock)
+        stack.addStretch(0)
+        self.inspector_scroll=QScrollArea()
+        self.inspector_scroll.setObjectName('InspectorScroll')
+        self.inspector_scroll.setWidgetResizable(True)
+        self.inspector_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.inspector_scroll.setWidget(inspector)
+        self.inspector_scroll.setMinimumWidth(252)
+
+        self.workspace_splitter=QSplitter(Qt.Orientation.Horizontal)
+        self.workspace_splitter.setObjectName('WorkspaceSplitter')
+        self.workspace_splitter.setHandleWidth(5)
+        self.workspace_splitter.setChildrenCollapsible(False)
+        self.workspace_splitter.addWidget(self.center_splitter)
+        self.workspace_splitter.addWidget(self.inspector_scroll)
+        self.workspace_splitter.setStretchFactor(0,1)
+        self.workspace_splitter.setStretchFactor(1,0)
+        self.workspace_splitter.setSizes([1000,292])
+
+        content=QHBoxLayout()
+        content.setContentsMargins(0,0,0,0)
+        content.setSpacing(0)
+        content.addWidget(self.tool_rail)
+        content.addWidget(self.workspace_splitter,1)
+        root.addLayout(content,1)
+        self.setCentralWidget(self.workspace_root)
+
+        self._panels={
+            'Colors': self.palette_dock,
+            'Layers': self.layer_dock,
+            'Preview': self.preview_dock,
+            'Reference': self.reference_dock,
+            'Timeline': self.timeline_dock,
+        }
+        self.view_menu.addSeparator()
+        self.view_menu.addSection('Workspace sections')
+        for name,panel in self._panels.items():
+            action=QAction(name,self)
+            action.setCheckable(True)
+            action.setChecked(name!='Reference')
+            action.toggled.connect(lambda checked,n=name:self.set_panel_visible(n,checked))
+            self.view_menu.addAction(action)
+            self._panel_actions[name]=action
+        self.reference_dock.hide()
+        self.view_menu.addSeparator()
+        self.add_action(self.view_menu,'Show everything',self.reset_layout,'Ctrl+Shift+0')
+        self._refresh_inspector()
+
+    def set_panel_visible(self,name,visible):
+        """Sections can always be recovered through View; no close buttons."""
+        if name not in self._panels:
+            return
+        self._panels[name].setVisible(visible)
+        action=self._panel_actions.get(name)
+        if action and action.isChecked()!=visible:
+            action.blockSignals(True)
+            action.setChecked(visible)
+            action.blockSignals(False)
+        self._refresh_inspector()
+
+    def _refresh_inspector(self):
+        if not hasattr(self,'inspector_scroll'):
+            return
+        inspector_visible=any(self._panels[name].isVisible()
+                              for name in ('Colors','Layers','Preview','Reference'))
+        self.inspector_scroll.setVisible(inspector_visible)
 
     def connect_canvas(self):
         self.canvas.changed.connect(self.on_canvas_changed)
@@ -317,12 +417,14 @@ class Editor(QMainWindow):
         self.add_action(help,'About Mellow Studio',self.about)
 
     def build_tools(self):
-        """Tools only; irrelevant brush settings live in the contextual inspector."""
-        tb=QToolBar('Drawing tools',self)
-        tb.setObjectName('DrawingTools')
-        tb.setMovable(False)
-        tb.setIconSize(QSize(25,25))
-        self.addToolBar(Qt.ToolBarArea.LeftToolBarArea,tb)
+        """Fixed vertical drawing rail. It is not a dock or a floating window."""
+        rail=QFrame()
+        rail.setObjectName('ToolRail')
+        rail.setFixedWidth(62)
+        tools=QVBoxLayout(rail)
+        tools.setContentsMargins(7,12,7,12)
+        tools.setSpacing(4)
+        self.tool_rail=rail
         self.tool_buttons={}
         self.tool_descriptions={
             'pencil':('Pencil','Paint precise logical pixels'),
@@ -341,20 +443,26 @@ class Editor(QMainWindow):
                  ('picker','I'),('line','L'),('rectangle','R'),('ellipse','O'),
                  ('marquee','M'),('move','V'),('pan','H')]
         for i,(tool,key) in enumerate(entries):
-            if i in (5,8):tb.addSeparator()
+            if i in (5,8):
+                gap=QFrame()
+                gap.setObjectName('ToolRailDivider')
+                gap.setFixedHeight(1)
+                tools.addSpacing(5)
+                tools.addWidget(gap)
+                tools.addSpacing(5)
             title,hint=self.tool_descriptions[tool]
-            b=QToolButton()
-            b.setObjectName('ToolGlyph')
-            b.setIcon(tool_icon(tool))
-            b.setIconSize(QSize(25,25))
-            b.setFixedSize(44,44)
-            b.setCheckable(True)
-            b.setAccessibleName(title)
-            b.setToolTip(f'{title} ({key})\n{hint}')
-            b.clicked.connect(lambda _,t=tool:self.set_tool(t))
-            tb.addWidget(b)
-            self.tool_buttons[tool]=b
-        self.set_tool('pencil')
+            button=QToolButton()
+            button.setObjectName('ToolGlyph')
+            button.setIcon(tool_icon(tool))
+            button.setIconSize(QSize(24,24))
+            button.setFixedSize(47,43)
+            button.setCheckable(True)
+            button.setAccessibleName(title)
+            button.setToolTip(f'{title} ({key})\n{hint}')
+            button.clicked.connect(lambda _,t=tool:self.set_tool(t))
+            tools.addWidget(button)
+            self.tool_buttons[tool]=button
+        tools.addStretch(1)
 
     def build_tool_options(self):
         """A tool-aware strip, not permanent settings clutter on the left."""
@@ -475,15 +583,20 @@ class Editor(QMainWindow):
         self.refresh_palette()
 
     def build_dock(self,title,objectname,widget,area):
-        dock=QDockWidget(title,self)
-        dock.setObjectName(objectname)
-        dock.setWidget(widget)
-        dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
-        self.addDockWidget(area,dock)
-        self.menuBar().findChild(QMenu,'View') if False else None
-        self._view_docks = getattr(self,'_view_docks',[])
-        self._view_docks.append(dock)
-        return dock
+        """Compatibility name for an inline, non-closable studio section."""
+        panel=QFrame()
+        panel.setObjectName(objectname)
+        panel.setProperty('studioSection',True)
+        content=QVBoxLayout(panel)
+        content.setContentsMargins(12,10,12,10)
+        content.setSpacing(7)
+        label=QLabel(title.upper())
+        label.setObjectName('SectionHeader')
+        label.setAccessibleName(title+' section')
+        content.addWidget(label)
+        content.addWidget(widget,1)
+        panel.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Preferred)
+        return panel
 
     def build_layers(self):
         root=QWidget();v=QVBoxLayout(root)
@@ -540,10 +653,7 @@ class Editor(QMainWindow):
         a=QPushButton('+ Save paint color')
         a.clicked.connect(self.add_palette_color)
         v.addWidget(a)
-        v.addStretch()
         self.palette_dock=self.build_dock('Palette','PaletteDock',root,Qt.DockWidgetArea.RightDockWidgetArea)
-        self.tabifyDockWidget(self.layer_dock,self.palette_dock)
-        self.layer_dock.raise_()
 
     def build_timeline(self):
         root=QWidget()
@@ -603,7 +713,7 @@ class Editor(QMainWindow):
         self.timeline.setGridSize(QSize(103,116))
         self.timeline.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.timeline.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self.timeline.setMinimumHeight(128)
+        self.timeline.setMinimumHeight(106)
         self.timeline.setMaximumHeight(149)
         self.timeline.currentRowChanged.connect(self.frame_selected)
         self.timeline.frameDropRequested.connect(self.reorder_selected_frames)
@@ -634,9 +744,10 @@ class Editor(QMainWindow):
     def build_preview(self):
         root=QWidget();v=QVBoxLayout(root)
         self.preview=QLabel()
-        self.preview.setMinimumSize(175,180)
+        self.preview.setMinimumSize(120,88)
+        self.preview.setMaximumHeight(128)
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview.setStyleSheet('background:#303847; border:1px solid #586176;')
+
         v.addWidget(self.preview)
         v.addWidget(QLabel('Native-pixel playback · per-frame timing'))
         self.preview_dock=self.build_dock('Live preview','PreviewDock',root,
@@ -711,7 +822,6 @@ class Editor(QMainWindow):
         layout.addStretch()
         self.reference_dock=self.build_dock('Reference Lab','ReferenceDock',root,
                                             Qt.DockWidgetArea.RightDockWidgetArea)
-        self.tabifyDockWidget(self.preview_dock,self.reference_dock)
 
     def refresh_reference_panel(self):
         if not hasattr(self,'source_info'):return
