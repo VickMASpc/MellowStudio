@@ -11,7 +11,7 @@ from PIL import Image, ImageOps
 from PySide6.QtCore import Qt, QTimer, QSettings, QByteArray, QSize, QStandardPaths, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPainter, QPixmap, QImage
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QScrollArea, QVBoxLayout,
+    QApplication, QMainWindow, QWidget, QScrollArea, QDockWidget, QVBoxLayout,
     QHBoxLayout, QGridLayout, QToolButton, QLabel, QPushButton, QListWidget,
     QListWidgetItem, QAbstractItemView, QSpinBox, QCheckBox, QInputDialog, QFileDialog,
     QMessageBox, QColorDialog, QFrame, QLineEdit, QDialog, QDialogButtonBox,
@@ -30,11 +30,12 @@ from .welcome import WelcomeDialog
 from .recent import tidy_recent
 from .export_ui import ExportDialog
 from .tool_icons import tool_icon
+from .color_controls import SaturationValueField
 from .studio_theme import STUDIO_QSS
 from .cli import export as export_native
 
 APP_TITLE = 'Mellow Studio'
-VERSION = '0.2.5-dev'
+VERSION = '0.2.6-dev'
 
 
 class Swatch(QPushButton):
@@ -213,7 +214,7 @@ class Editor(QMainWindow):
         self.statusBar().showMessage('Mellow 41×55 ready  ·  Paint with B  ·  Animate with Ctrl+D',6500)
 
     def compose_workspace(self):
-        """One window, fixed regions. No dock stacking, dragging, or floating panels."""
+        """Real dockable windows, initially arranged as stable side sections."""
         self.workspace_root=QWidget()
         self.workspace_root.setObjectName('StudioWorkspace')
         root=QVBoxLayout(self.workspace_root)
@@ -237,44 +238,18 @@ class Editor(QMainWindow):
         self.center_splitter.addWidget(self.timeline_dock)
         self.center_splitter.setStretchFactor(0,1)
         self.center_splitter.setStretchFactor(1,0)
-        self.center_splitter.setSizes([690,174])
-
-        inspector=QWidget()
-        inspector.setObjectName('InspectorSections')
-        stack=QVBoxLayout(inspector)
-        stack.setContentsMargins(10,12,10,10)
-        stack.setSpacing(10)
-        # Color and Layers are independently present, not mutually exclusive tabs.
-        stack.addWidget(self.palette_dock)
-        stack.addWidget(self.layer_dock,1)
-        stack.addWidget(self.preview_dock)
-        stack.addWidget(self.reference_dock)
-        stack.addStretch(0)
-        self.inspector_scroll=QScrollArea()
-        self.inspector_scroll.setObjectName('InspectorScroll')
-        self.inspector_scroll.setWidgetResizable(True)
-        self.inspector_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.inspector_scroll.setWidget(inspector)
-        self.inspector_scroll.setMinimumWidth(252)
-
-        self.workspace_splitter=QSplitter(Qt.Orientation.Horizontal)
-        self.workspace_splitter.setObjectName('WorkspaceSplitter')
-        self.workspace_splitter.setHandleWidth(5)
-        self.workspace_splitter.setChildrenCollapsible(False)
-        self.workspace_splitter.addWidget(self.center_splitter)
-        self.workspace_splitter.addWidget(self.inspector_scroll)
-        self.workspace_splitter.setStretchFactor(0,1)
-        self.workspace_splitter.setStretchFactor(1,0)
-        self.workspace_splitter.setSizes([1000,292])
-
+        self.center_splitter.setSizes([700,175])
         content=QHBoxLayout()
         content.setContentsMargins(0,0,0,0)
         content.setSpacing(0)
         content.addWidget(self.tool_rail)
-        content.addWidget(self.workspace_splitter,1)
+        content.addWidget(self.center_splitter,1)
         root.addLayout(content,1)
         self.setCentralWidget(self.workspace_root)
 
+        self.setDockOptions(QMainWindow.DockOption.AllowNestedDocks |
+                            QMainWindow.DockOption.AnimatedDocks)
+        self.setDockNestingEnabled(True)
         self._panels={
             'Colors': self.palette_dock,
             'Layers': self.layer_dock,
@@ -282,38 +257,44 @@ class Editor(QMainWindow):
             'Reference': self.reference_dock,
             'Timeline': self.timeline_dock,
         }
+        # Panels are real movable, closeable and detachable Qt windows.
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.palette_dock)
+        self.splitDockWidget(self.palette_dock,self.layer_dock,Qt.Orientation.Vertical)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.preview_dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.reference_dock)
+        self.preview_dock.hide()
+        self.reference_dock.hide()
+        self.resizeDocks([self.palette_dock,self.layer_dock],[360,290],
+                         Qt.Orientation.Vertical)
+
+        self._panel_actions={}
         self.view_menu.addSeparator()
-        self.view_menu.addSection('Workspace sections')
+        self.view_menu.addSection('Windows and panels')
         for name,panel in self._panels.items():
-            action=QAction(name,self)
-            action.setCheckable(True)
-            action.setChecked(name!='Reference')
-            action.toggled.connect(lambda checked,n=name:self.set_panel_visible(n,checked))
+            if name=='Timeline':
+                action=QAction(name,self)
+                action.setCheckable(True)
+                action.setChecked(True)
+                action.toggled.connect(lambda checked:self.set_panel_visible('Timeline',checked))
+            else:
+                action=panel.toggleViewAction()
+                action.setText(name)
             self.view_menu.addAction(action)
             self._panel_actions[name]=action
-        self.reference_dock.hide()
         self.view_menu.addSeparator()
-        self.add_action(self.view_menu,'Show everything',self.reset_layout,'Ctrl+Shift+0')
-        self._refresh_inspector()
+        self.add_action(self.view_menu,'Reset windows and panels',self.reset_layout,'Ctrl+Shift+0')
 
     def set_panel_visible(self,name,visible):
-        """Sections can always be recovered through View; no close buttons."""
         if name not in self._panels:
             return
-        self._panels[name].setVisible(visible)
-        action=self._panel_actions.get(name)
-        if action and action.isChecked()!=visible:
-            action.blockSignals(True)
-            action.setChecked(visible)
-            action.blockSignals(False)
-        self._refresh_inspector()
+        panel=self._panels[name]
+        panel.setVisible(bool(visible))
+        if visible and isinstance(panel,QDockWidget):
+            panel.raise_()
 
     def _refresh_inspector(self):
-        if not hasattr(self,'inspector_scroll'):
-            return
-        inspector_visible=any(not self._panels[name].isHidden()
-                              for name in ('Colors','Layers','Preview','Reference'))
-        self.inspector_scroll.setVisible(inspector_visible)
+        # Compatibility with existing refresh code; QMainWindow owns docks now.
+        pass
 
     def connect_canvas(self):
         self.canvas.changed.connect(self.on_canvas_changed)
@@ -581,20 +562,17 @@ class Editor(QMainWindow):
         self.refresh_palette()
 
     def build_dock(self,title,objectname,widget,area):
-        """Compatibility name for an inline, non-closable studio section."""
-        panel=QFrame()
-        panel.setObjectName(objectname)
-        panel.setProperty('studioSection',True)
-        content=QVBoxLayout(panel)
-        content.setContentsMargins(12,10,12,10)
-        content.setSpacing(7)
-        label=QLabel(title.upper())
-        label.setObjectName('SectionHeader')
-        label.setAccessibleName(title+' section')
-        content.addWidget(label)
-        content.addWidget(widget,1)
-        panel.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Preferred)
-        return panel
+        """A movable, floatable, closeable window whose content stays intact."""
+        dock=QDockWidget(title,self)
+        dock.setObjectName(objectname)
+        dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable |
+                         QDockWidget.DockWidgetFeature.DockWidgetMovable |
+                         QDockWidget.DockWidgetFeature.DockWidgetFloatable)
+        dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea |
+                             Qt.DockWidgetArea.RightDockWidgetArea)
+        dock.setMinimumWidth(248)
+        dock.setWidget(widget)
+        return dock
 
     def build_layers(self):
         root=QWidget();v=QVBoxLayout(root)
@@ -626,31 +604,97 @@ class Editor(QMainWindow):
         self.layer_dock=self.build_dock('Layers','LayersDock',root,Qt.DockWidgetArea.RightDockWidgetArea)
 
     def build_palette(self):
-        root=QWidget();v=QVBoxLayout(root)
+        """Full direct color editing stays usable while painting."""
+        root=QWidget()
+        v=QVBoxLayout(root)
+        v.setContentsMargins(9,8,9,8)
+        v.setSpacing(8)
+        self.edit_secondary=False
+        self.selected_palette_index=None
         top=QHBoxLayout()
-        self.fg_button=QPushButton('PAINT')
-        self.bg_button=QPushButton('SECONDARY')
+        self.fg_button=QPushButton('Paint')
+        self.bg_button=QPushButton('Secondary')
+        self.fg_button.setToolTip('Edit the painting color using the color controls below')
+        self.bg_button.setToolTip('Edit the secondary color using the color controls below')
+        self.fg_button.clicked.connect(lambda:self.select_color_target(False))
+        self.bg_button.clicked.connect(lambda:self.select_color_target(True))
         self.swap_button=QPushButton('⇄')
-        self.swap_button.setFixedWidth(40)
-        self.swap_button.setToolTip('Swap foreground and secondary (X)')
+        self.swap_button.setFixedWidth(35)
+        self.swap_button.setToolTip('Swap colors (X)')
         self.swap_button.clicked.connect(self.swap_colors)
-        self.fg_button.setToolTip('Click to pick foreground color')
-        self.bg_button.setToolTip('Click to pick secondary/right-click color')
-        self.fg_button.clicked.connect(lambda:self.pick_color(False))
-        self.bg_button.clicked.connect(lambda:self.pick_color(True))
-        top.addWidget(self.fg_button)
+        top.addWidget(self.fg_button,1)
         top.addWidget(self.swap_button)
-        top.addWidget(self.bg_button)
+        top.addWidget(self.bg_button,1)
         v.addLayout(top)
-        self.color_grid=QGridLayout();self.color_grid.setSpacing(4)
+
+        self.color_field=SaturationValueField()
+        self.color_field.colorChanged.connect(self.color_from_field)
+        v.addWidget(self.color_field)
+        hue=QHBoxLayout()
+        hue.addWidget(QLabel('Hue'))
+        self.color_hue=QSlider(Qt.Orientation.Horizontal)
+        self.color_hue.setObjectName('HueSlider')
+        self.color_hue.setRange(0,359)
+        self.color_hue.valueChanged.connect(self.hue_changed)
+        hue.addWidget(self.color_hue,1)
+        v.addLayout(hue)
+
+        hexline=QHBoxLayout()
+        hexline.addWidget(QLabel('Hex'))
+        self.color_hex=QLineEdit()
+        self.color_hex.setObjectName('ColorHexInput')
+        self.color_hex.setMaxLength(7)
+        self.color_hex.setPlaceholderText('#RRGGBB')
+        self.color_hex.setToolTip('Type a six-digit hex color and press Enter')
+        self.color_hex.editingFinished.connect(self.apply_hex_color)
+        hexline.addWidget(self.color_hex,1)
+        self.color_advanced=QPushButton('More…')
+        self.color_advanced.setToolTip('Open the full Qt color picker for advanced colors')
+        self.color_advanced.clicked.connect(lambda:self.pick_color(self.edit_secondary))
+        hexline.addWidget(self.color_advanced)
+        v.addLayout(hexline)
+
+        rgb=QHBoxLayout()
+        self.color_rgb=[]
+        for component in 'RGB':
+            label=QLabel(component)
+            box=QSpinBox()
+            box.setObjectName('Color'+component)
+            box.setRange(0,255)
+            box.setToolTip(f'{component} color channel, 0–255')
+            box.valueChanged.connect(self.color_from_rgb)
+            rgb.addWidget(label)
+            rgb.addWidget(box,1)
+            self.color_rgb.append(box)
+        v.addLayout(rgb)
+
+        palette_title=QLabel('SAVED COLORS')
+        palette_title.setObjectName('SectionHeader')
+        v.addWidget(palette_title)
+        self.color_grid=QGridLayout()
+        self.color_grid.setSpacing(4)
         v.addLayout(self.color_grid)
-        hint=QLabel('Click a swatch to paint · right-click for secondary')
+        hint=QLabel('Click to paint · right-click for secondary · edit with the controls above')
         hint.setWordWrap(True)
         hint.setObjectName('ToolHint')
         v.addWidget(hint)
-        a=QPushButton('+ Save paint color')
-        a.clicked.connect(self.add_palette_color)
-        v.addWidget(a)
+        actions=QHBoxLayout()
+        add=QPushButton('+ Add')
+        add.setToolTip('Save the current painting color in this project')
+        add.clicked.connect(self.add_palette_color)
+        replace=QPushButton('Replace')
+        replace.setToolTip('Replace the selected saved swatch with the current painting color')
+        replace.clicked.connect(self.replace_palette_color)
+        remove=QPushButton('Remove')
+        remove.setToolTip('Delete the selected saved swatch')
+        remove.clicked.connect(self.remove_palette_color)
+        actions.addWidget(add)
+        actions.addWidget(replace)
+        actions.addWidget(remove)
+        self.palette_replace=replace
+        self.palette_remove=remove
+        v.addLayout(actions)
+        v.addStretch(1)
         self.palette_dock=self.build_dock('Colors','PaletteDock',root,Qt.DockWidgetArea.RightDockWidgetArea)
 
     def build_timeline(self):
@@ -1024,53 +1068,153 @@ class Editor(QMainWindow):
         self.opacity_value.setText(f'{round(self.doc.layer.opacity*100/255)}%')
 
     def refresh_palette(self):
+        if self.selected_palette_index is not None and not (
+                0 <= self.selected_palette_index < len(self.doc.palette)):
+            self.selected_palette_index=None
         while self.color_grid.count():
-            w=self.color_grid.takeAt(0).widget()
-            if w:w.deleteLater()
+            item=self.color_grid.takeAt(0)
+            widget=item.widget()
+            if widget:
+                widget.deleteLater()
         for i,hexcode in enumerate(self.doc.palette):
-            sw=Swatch(hexcode,self.set_foreground_hex,self.set_secondary_hex)
-            if hexcode.lower()==self.to_hex(self.foreground).lower():
-                sw.setStyleSheet(f'background:{hexcode}; border:3px solid #efb48d; border-radius:5px;')
-                sw.setToolTip(sw.toolTip()+' · selected paint color')
+            sw=Swatch(hexcode,
+                      lambda h,index=i:self.choose_palette_swatch(index,h),
+                      self.set_secondary_hex)
+            if i==self.selected_palette_index:
+                sw.setStyleSheet(f'background:{hexcode}; border:3px solid #178594; border-radius:6px;')
+                sw.setToolTip(sw.toolTip()+' · selected saved swatch')
             self.color_grid.addWidget(sw,i//6,i%6)
-        for btn, color in ((self.fg_button,self.foreground),(self.bg_button,self.secondary)):
+        self.palette_replace.setEnabled(self.selected_palette_index is not None)
+        self.palette_remove.setEnabled(self.selected_palette_index is not None)
+
+        for btn,color in ((self.fg_button,self.foreground),(self.bg_button,self.secondary)):
             rgb=self.to_hex(color)
             brightness=(color[0]*299+color[1]*587+color[2]*114)//1000
-            fg='#192330' if brightness>145 else '#fffdf9'
-            btn.setStyleSheet(f'background:{rgb}; color:{fg}; font-weight:700; border:2px solid #8399ae;')
-        for btn, color in ((getattr(self,'primary_chip',None),self.foreground),
-                           (getattr(self,'secondary_chip',None),self.secondary)):
+            contrast='#192330' if brightness>145 else '#fffdf9'
+            target='Paint' if btn is self.fg_button else 'Secondary'
+            active=(btn is self.bg_button)==self.edit_secondary
+            outline='#177d88' if active else '#9daebc'
+            btn.setText(target+(' ✓' if active else ''))
+            btn.setStyleSheet(
+                f'background:{rgb}; color:{contrast}; font-weight:700; '
+                f'border:3px solid {outline}; border-radius:8px;')
+        for btn,color in ((getattr(self,'primary_chip',None),self.foreground),
+                          (getattr(self,'secondary_chip',None),self.secondary)):
             if btn is not None:
                 rgb=self.to_hex(color)
                 contrast='#17202b' if (color[0]*299+color[1]*587+color[2]*114)//1000>145 else '#ffffff'
                 btn.setStyleSheet(f'background:{rgb}; color:{contrast}; border:2px solid #8798ab; font-weight:700;')
 
+        edited=self.secondary if self.edit_secondary else self.foreground
+        color=QColor(*edited[:3])
+        hue=color.hsvHue()
+        self.color_field.set_color(color)
+        if hue>=0:
+            self.color_hue.blockSignals(True)
+            self.color_hue.setValue(hue)
+            self.color_hue.blockSignals(False)
+        self.color_hex.blockSignals(True)
+        self.color_hex.setText(color.name().upper())
+        self.color_hex.blockSignals(False)
+        for index,channel in enumerate(self.color_rgb):
+            channel.blockSignals(True)
+            channel.setValue(edited[index])
+            channel.blockSignals(False)
+
     @staticmethod
     def to_hex(c):
         return '#%02x%02x%02x' % c[:3]
 
+    def select_color_target(self,secondary:bool):
+        self.edit_secondary=secondary
+        self.refresh_palette()
+
+    def color_from_field(self,color):
+        self.apply_editor_color(color)
+
+    def hue_changed(self,hue):
+        self.color_field.set_hue(hue)
+        self.apply_editor_color(self.color_field.current_color())
+
+    def apply_hex_color(self):
+        typed=self.color_hex.text().strip()
+        if not typed.startswith('#'):
+            typed='#'+typed
+        color=QColor(typed)
+        if color.isValid() and len(typed)==7:
+            self.apply_editor_color(color)
+        else:
+            self.refresh_palette()
+
+    def color_from_rgb(self,*_):
+        self.apply_editor_color(QColor(*(w.value() for w in self.color_rgb)))
+
+    def apply_editor_color(self,color):
+        if not color.isValid():
+            return
+        value=(color.red(),color.green(),color.blue(),255)
+        if self.edit_secondary:
+            self.secondary=value
+        else:
+            self.foreground=value
+        self.refresh_palette()
+
     def set_foreground_hex(self,hexcode):
         c=QColor(hexcode)
+        if not c.isValid():
+            return
         self.foreground=(c.red(),c.green(),c.blue(),255)
+        self.edit_secondary=False
         self.refresh_palette()
 
     def set_secondary_hex(self,hexcode):
         c=QColor(hexcode)
+        if not c.isValid():
+            return
         self.secondary=(c.red(),c.green(),c.blue(),255)
+        self.edit_secondary=True
         self.refresh_palette()
 
     def pick_color(self,secondary):
         original=QColor.fromRgb(*(self.secondary if secondary else self.foreground))
-        c=QColorDialog.getColor(original,self,'Pick pixel color')
+        c=QColorDialog.getColor(original,self,'Advanced color picker')
         if c.isValid():
-            if secondary:self.set_secondary_hex(c.name())
-            else:self.set_foreground_hex(c.name())
+            self.edit_secondary=bool(secondary)
+            self.apply_editor_color(c)
+
+    def choose_palette_swatch(self,index,hexcode):
+        self.selected_palette_index=index
+        self.set_foreground_hex(hexcode)
 
     def add_palette_color(self):
         c=self.to_hex(self.foreground)
         if c not in self.doc.palette:
-            self.begin_edit();self.doc.palette.append(c);self.finish_edit()
-            self.refresh_palette()
+            self.begin_edit()
+            self.doc.palette.append(c)
+            self.finish_edit()
+        self.selected_palette_index=self.doc.palette.index(c)
+        self.refresh_palette()
+
+    def replace_palette_color(self):
+        i=self.selected_palette_index
+        if i is None or not (0<=i<len(self.doc.palette)):
+            return
+        new=self.to_hex(self.foreground)
+        if self.doc.palette[i].lower()!=new.lower():
+            self.begin_edit()
+            self.doc.palette[i]=new
+            self.finish_edit()
+        self.refresh_palette()
+
+    def remove_palette_color(self):
+        i=self.selected_palette_index
+        if i is None or not (0<=i<len(self.doc.palette)):
+            return
+        self.begin_edit()
+        del self.doc.palette[i]
+        self.finish_edit()
+        self.selected_palette_index=None
+        self.refresh_palette()
 
     def sample_color(self,c):
         if c[3] == 0:return
@@ -1801,45 +1945,53 @@ class Editor(QMainWindow):
         geometry=self.settings.value('window/geometry')
         if geometry:
             self.restoreGeometry(geometry)
-        # Old QDockWidget saved layout is intentionally discarded.
-        for splitter,key in ((self.workspace_splitter,'workspace/splitter'),
-                             (self.center_splitter,'workspace/timeline')):
-            state=self.settings.value(key)
-            if state:
-                splitter.restoreState(state)
-        self._refresh_inspector()
+        sizes=self.settings.value('workspace/timeline')
+        if sizes:
+            self.center_splitter.restoreState(sizes)
+        # Ignore old layouts that previously trapped or overlapped the canvas.
+        dock_state=self.settings.value('workspace/dock_v3')
+        if dock_state:
+            self.restoreState(dock_state,3)
 
     def toggle_focus_mode(self):
-        """Focus on drawing without forgetting which sections were open."""
         if not self._focus_mode:
             self._panel_visibility_before_focus={
                 name:not panel.isHidden() for name,panel in self._panels.items()}
-            for name in ('Colors','Layers','Preview','Reference','Timeline'):
+            for name in self._panels:
                 self.set_panel_visible(name,False)
             self._focus_mode=True
-            self.statusBar().showMessage('Canvas focus · F11 restores your workspace',3500)
         else:
             for name,visible in self._panel_visibility_before_focus.items():
                 self.set_panel_visible(name,visible)
             self._focus_mode=False
-            self.statusBar().showMessage('Workspace restored',2200)
 
     def reset_layout(self):
-        """Restore one useful, consistent creative workspace at any time."""
+        """Restore windows into visible, non-overlapping sidebar sections."""
         self._focus_mode=False
-        for name in ('Colors','Layers','Preview','Timeline'):
-            self.set_panel_visible(name,True)
-        self.set_panel_visible('Reference',False)
-        self.workspace_splitter.setSizes([1000,292])
-        self.center_splitter.setSizes([690,174])
-        self._refresh_inspector()
-        self.statusBar().showMessage('Default workspace restored',3000)
+        for dock in (self.palette_dock,self.layer_dock,self.preview_dock,
+                     self.reference_dock):
+            if dock.isFloating():
+                dock.setFloating(False)
+            self.removeDockWidget(dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.palette_dock)
+        self.splitDockWidget(self.palette_dock,self.layer_dock,Qt.Orientation.Vertical)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.preview_dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.reference_dock)
+        self.palette_dock.show()
+        self.layer_dock.show()
+        self.preview_dock.hide()
+        self.reference_dock.hide()
+        self.timeline_dock.show()
+        self.center_splitter.setSizes([700,175])
+        self.resizeDocks([self.palette_dock,self.layer_dock],[360,290],
+                         Qt.Orientation.Vertical)
+        self.statusBar().showMessage('Colors and Layers restored on the right',3000)
 
     def closeEvent(self,event):
         if not self.confirm_discard():
             event.ignore();return
         self.settings.setValue('window/geometry',self.saveGeometry())
-        self.settings.setValue('workspace/splitter',self.workspace_splitter.saveState())
+        self.settings.setValue('workspace/dock_v3',self.saveState(3))
         self.settings.setValue('workspace/timeline',self.center_splitter.saveState())
         if not self.dirty and self.canvas.floating is None:
             self.recovery.discard_token(self.recovery.token_for(
@@ -1860,7 +2012,7 @@ class Editor(QMainWindow):
           'Ctrl+N/O/S new/open/save · Ctrl+I measured import · Ctrl+Alt+R Reference Lab · Ctrl+E export PNG.\n'
           'G show grid · Shift+O onion skin · Ctrl+mouse wheel zoom · middle drag pan · '
           '[ and ] brush size · right mouse secondary color.\n\n'
-          'Colors and Layers live beside the canvas. View restores hidden sections; '
+          'Colors and Layers are movable windows. View reopens closed ones; '
            'Ctrl+Shift+0 resets the whole workspace. F11 focuses on the canvas.')
 
     def about(self):
