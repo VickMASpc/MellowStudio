@@ -60,6 +60,18 @@ jobs:
         if: runner.os == 'Windows' && matrix.python == '3.11'
         shell: pwsh
         run: pwsh -NoProfile -File tests/test_windows_pip_bootstrap.ps1
+      - name: Verify native QtCore, QtGui and QtWidgets DLL imports
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python scripts/check_qt_windows.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check a missing Qt installation produces diagnostics
+        if: runner.os == 'Windows' && matrix.python == '3.11'
+        shell: pwsh
+        run: |
+          python -S scripts/check_qt_windows.py *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'Broken Qt import was not detected.' }
       - name: Compile all modules
         run: python -m compileall -q mellowstudio
       - name: Run headless engine tests (Linux)
