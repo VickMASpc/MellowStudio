@@ -11,8 +11,8 @@ from PIL import Image, ImageOps
 from PySide6.QtCore import Qt, QTimer, QSettings, QByteArray, QSize, QStandardPaths, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPainter, QPixmap, QImage
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QScrollArea, QDockWidget, QVBoxLayout,
-    QHBoxLayout, QGridLayout, QToolBar, QToolButton, QLabel, QPushButton, QListWidget,
+    QApplication, QMainWindow, QWidget, QScrollArea, QVBoxLayout,
+    QHBoxLayout, QGridLayout, QToolButton, QLabel, QPushButton, QListWidget,
     QListWidgetItem, QAbstractItemView, QSpinBox, QCheckBox, QInputDialog, QFileDialog,
     QMessageBox, QColorDialog, QFrame, QLineEdit, QDialog, QDialogButtonBox,
     QFormLayout, QSlider, QMenu, QScrollBar, QSizePolicy, QSplitter
@@ -398,6 +398,7 @@ class Editor(QMainWindow):
         self.add_action(animation,'Delete layer',self.delete_layer)
 
         view=bar.addMenu('&View')
+        self.view_menu=view
         self.action_grid=self.add_action(view,'Logical pixel grid',self.toggle_grid,'G',True)
         self.action_grid.setChecked(True)
         self.action_onion=self.add_action(view,'Onion skin',self.toggle_onion,'Shift+O',True)
@@ -409,7 +410,7 @@ class Editor(QMainWindow):
         self.add_action(view,'Zoom actual logical pixels',lambda:self.canvas.set_zoom(1),'Ctrl+1')
         self.add_action(view,'Zoom to fit',self.zoom_fit,'Ctrl+0')
         self.add_action(view,'Focus canvas / restore panels',self.toggle_focus_mode,'F11')
-        self.add_action(view,'Reset panel layout',self.reset_layout)
+        self.add_action(view,'Restore default workspace',self.reset_layout)
         self.add_action(view,'Reference Lab…',self.open_reference_lab)
 
         help=bar.addMenu('&Help')
