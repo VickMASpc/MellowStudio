@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.5 — One-window studio: full layout replacement (development)
+
+- Removed all live Qt dock widgets, floating/tabs and old saved window/dock state. No color window to close before drawing.
+- True integrated workspace: fixed tool rail, a large central canvas, independent persistent Colors and Layers sidebar cards, compact Preview and optional Reference, and resizable timeline below.
+- Tool-aware contextual controls and top project controls moved to inline layout instead of QToolBars.
+- View menu exposes every section for instant recovery; Ctrl+Shift+0 restores the full workspace, F11 focus restores the exact previous section visibility.
+- New light, high-contrast visual design and correctly colored vector icons. Sidebar scrolls; it cannot float over the canvas.
+- Qt regression specifically checks simultaneous Colors/Layers, zero floating docks, canvas/sidebar nonoverlap, section recovery and focus state. Windows manual visual review remains a separate release gate.
+
+
 ## 0.2.4 — Artist-first studio experience (development preview)
 
 - A real **Welcome / Start** screen with New Canvas, Open Project, bundled sample, recent native projects, optional startup toggle, and access to saved crash recovery.
