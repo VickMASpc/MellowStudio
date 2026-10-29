@@ -10,6 +10,16 @@
 
 **Validation:** Qt GUI smoke and regression matrix must pass; physical Windows layout feedback is still required. [Development plan](docs/DEVELOPMENT_PLAN.md) · [Sprint log](docs/SPRINT_LOG.md).
 
+### Launch troubleshooting: missing pip
+
+If `start_windows.bat` reports `No module named pip` after a destructive sync, the Windows bootstrap now automatically restores it using `.venv\\Scripts\\python.exe -m ensurepip --upgrade` before installing the app. If your Python distribution lacks `ensurepip`, the launcher reports that explicitly. The editor launcher prints startup progress and keeps errors visible instead of failing silently. A manual repair for an existing `.venv` is:
+
+```powershell
+.\\.venv\\Scripts\\python.exe -m ensurepip --upgrade
+.\\start_windows.bat
+```
+
+
 ---
 
 ## Previous release notes
