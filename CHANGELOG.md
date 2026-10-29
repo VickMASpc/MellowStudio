@@ -1,5 +1,14 @@
 # Changelog
 
+
+## Windows startup — native QtCore dependency repair (2026-10-29)
+
+- Pin PySide6 6.10.2 instead of selecting a different Qt wheel on every fresh environment.
+- Preflight actual QtCore, QtGui and QtWidgets imports, not only the top-level PySide6 package.
+- On Qt DLL load failure, repair matching Qt packages once in the existing environment without reinstalling Python or the editor's other packages.
+- Print useful missing-DLL/runtime diagnostics if the Qt repair cannot make the application start; add Windows CI checks for native Qt imports and missing-Qt diagnostics.
+
+
 ## Windows update fix — no more repeated reinstall (2026-10-29)
 
 - Corrected `dev.ps1 sync` to fetch the newest `main` and replace only tracked Mellow source, preserving the existing `.venv`, ordinary local artwork, exports, ignored files, and separate branches.
