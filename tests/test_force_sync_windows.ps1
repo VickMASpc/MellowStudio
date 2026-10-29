@@ -92,7 +92,7 @@ try {
         throw 'Sync modified untracked art.'
     }
     # Untracked local art and ignored venv are intentionally still reported by Git.
-    if (-not (($remaining -join "`n") -match 'untracked-art\\.png')) {
+    if (-not (($remaining -join "`n") -match 'untracked-art\.png')) {
         throw 'Expected local asset to remain untracked.'
     }
     & pwsh -NoProfile -File (Join-Path $work 'scripts/sync_windows.ps1')
