@@ -34,7 +34,7 @@ from .studio_theme import STUDIO_QSS
 from .cli import export as export_native
 
 APP_TITLE = 'Mellow Studio'
-VERSION = '0.2.4-dev'
+VERSION = '0.2.5-dev'
 
 
 class Swatch(QPushButton):
@@ -651,7 +651,7 @@ class Editor(QMainWindow):
         a=QPushButton('+ Save paint color')
         a.clicked.connect(self.add_palette_color)
         v.addWidget(a)
-        self.palette_dock=self.build_dock('Palette','PaletteDock',root,Qt.DockWidgetArea.RightDockWidgetArea)
+        self.palette_dock=self.build_dock('Colors','PaletteDock',root,Qt.DockWidgetArea.RightDockWidgetArea)
 
     def build_timeline(self):
         root=QWidget()
