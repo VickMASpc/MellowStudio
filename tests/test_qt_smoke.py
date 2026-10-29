@@ -324,3 +324,79 @@ def test_qt_dock_windows_recoverable_and_colors_not_over_canvas(tmp_path,monkeyp
 
     window.dirty=False
     window.close()
+
+
+def test_full_original_docking_freedom_with_canvas_reservation(tmp_path,monkeypatch):
+    """Tab/stack/move/focus were supported before PR #13 and must stay supported."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QDockWidget, QScrollArea
+    from mellowstudio.model import Document
+
+    monkeypatch.setenv('XDG_DATA_HOME',str(tmp_path/'data'))
+    monkeypatch.setenv('XDG_CONFIG_HOME',str(tmp_path/'config'))
+    app=QApplication.instance() or QApplication([])
+    window=Editor()
+    window.set_document(Document(32,32,'Original docking freedoms'))
+    window.resize(1220,780)
+    window.show()
+    app.processEvents()
+    window.reset_layout()
+    app.processEvents()
+
+    assert window.dockOptions() & window.DockOption.AllowTabbedDocks
+    assert window.dockOptions() & window.DockOption.AllowNestedDocks
+    assert window.scroller.minimumHeight() >= 240
+    assert window.scroller.minimumWidth() >= 340
+    assert isinstance(window.palette_dock.widget(), QScrollArea)
+    assert window.palette_dock.widget().widgetResizable()
+    docks=(window.palette_dock,window.layer_dock,window.timeline_dock,
+           window.preview_dock,window.reference_dock)
+    assert all(isinstance(d,QDockWidget) for d in docks)
+    assert all(d.allowedAreas()==Qt.DockWidgetArea.AllDockWidgetAreas for d in docks)
+
+    # A user can move Colors AND Timeline to any other part of the main editor.
+    window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea,window.palette_dock)
+    window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,window.timeline_dock)
+    app.processEvents()
+    assert window.dockWidgetArea(window.palette_dock)==Qt.DockWidgetArea.LeftDockWidgetArea
+    assert window.dockWidgetArea(window.timeline_dock)==Qt.DockWidgetArea.RightDockWidgetArea
+
+    # Deliberate stacking/tabbing must be available, rather than forbidden.
+    window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,window.timeline_dock)
+    window.tabifyDockWidget(window.timeline_dock,window.palette_dock)
+    window.palette_dock.raise_()
+    app.processEvents()
+    assert window.palette_dock in window.tabifiedDockWidgets(window.timeline_dock)
+    assert window.scroller.minimumHeight()>=240
+
+    # Focus should temporarily clear dock pressure and restore the arrangement.
+    window.toggle_focus_mode()
+    app.processEvents()
+    assert window._focus_mode
+    assert window.scroller.isVisible()
+    window.toggle_focus_mode()
+    app.processEvents()
+    assert not window._focus_mode
+    assert window.palette_dock in window.tabifiedDockWidgets(window.timeline_dock)
+
+    # Floating is a choice for every panel, not an error or a restricted zone.
+    window.palette_dock.setFloating(True)
+    app.processEvents()
+    assert window.palette_dock.isFloating()
+    window.palette_dock.close()
+    app.processEvents()
+    assert not window._panel_actions['Colors'].isChecked()
+    window._panel_actions['Colors'].trigger()
+    app.processEvents()
+    assert window.palette_dock.isVisible()
+
+    # One explicit escape hatch recovers the default without removing flexibility.
+    window.reset_layout()
+    app.processEvents()
+    assert not window.palette_dock.isFloating()
+    assert window.dockWidgetArea(window.palette_dock)==Qt.DockWidgetArea.RightDockWidgetArea
+    assert window.dockWidgetArea(window.timeline_dock)==Qt.DockWidgetArea.BottomDockWidgetArea
+    assert window.palette_dock.isVisible() and window.layer_dock.isVisible()
+    assert window._panel_actions['Colors'].isChecked()
+    window.dirty=False
+    window.close()
