@@ -228,6 +228,14 @@ For Mellow 0.2.5 the project requires `PySide6==6.10.2`. On a previously repaire
 
 To inspect the environment without changing it: `.\.venv\Scripts\python.exe scripts\check_qt_windows.py`. A 6.10.2 metadata match is necessary but not sufficient: native Qt imports must also pass. Qt's 6.10.2 PyPI release supports Python 3.14; no system Python reinstall is called for by a version mismatch alone. The specific missing dependent DLL remains unconfirmed until actual laptop validation.
 
+
+
+### Colors and windows (0.2.6)
+
+Colors is now a *real color editing panel*. It sits beside the canvas by default, so you can change paint colors without closing any window. Edit hue, saturation/brightness, hex or RGB directly; click a saved swatch to paint, right-click for secondary, and add, replace or remove palette colors. **More…** keeps the advanced system color picker available when needed.
+
+**Windows are still available.** Drag Colors, Layers, Preview or Reference out by its title bar to make a floating window, or dock it back. Close any panel with its X; **View → Colors / Layers / Preview / Reference** reopens it. **Ctrl+Shift+0** restores Colors and Layers next to the canvas in the default arrangement. The timeline stays below the canvas.
+
 ## GitHub development workflow
 
 This repository is the **single source of truth** from v0.2.0 forward. Do not unpack new versions into new folders. Make small feature branches, run tests, open PRs, and merge once green. Avoid committing generated `.venv`, caches, packaging output, or autosaves.
