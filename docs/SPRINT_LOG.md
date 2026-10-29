@@ -1,6 +1,6 @@
 # Mellow Studio — sprint log and release gates
 
-**Updated:** 2026-10-28  
+**Updated:** 2026-10-29  
 **Current merged baseline:** 0.2.4 artist-workspace implementation (PR #10), Windows/Linux CI verified; physical Windows UX acceptance remains open.  
 **Active work:** completion of flagship reference registration in [Issue #7](https://github.com/VickMASpc/MellowStudio/issues/7) and remaining recovery/performance gates in [Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3). **Status: implementation, not a fully accepted physical-Windows release.**  
 **Roadmap:** [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md). A source implementation is not a release acceptance.
@@ -115,3 +115,16 @@
 **Safety boundary:** wrong origin or failed fetch exits before any destructive step. Git failures while cleaning or deleting other worktree branches are surfaced; external files outside the repo and separately linked worktrees are not deleted. First-time bootstrap from the pre-0.2.5 sync command still requires manual Git commands when that older sync refuses dirty files.
 
 **Verification:** [PR #11 CI](https://github.com/VickMASpc/MellowStudio/actions/runs/40864298778) passed **all five jobs**; Windows Python 3.11 executed the actual offline Git integration fixture and reported `Force-sync integration: all checks passed`, followed by **62 passing engine/Qt tests**. Both Linux matrix jobs and Windows Python 3.13 also passed. The automatic merged-branch prune ran successfully. **This verifies the command with a disposable test repository, not execution on the user's PC.** This policy is user-authorized and deliberately replaces prior preservation behavior.
+
+
+## Sprint 0.2.5 — Single-window creative studio rebuild (2026-10-29)
+
+**Prompt/defect:** User explicitly rejects the entire old interface. The current docking architecture still treats colors as a window, tabs it under other windows, and can make the canvas unusable. Hiding panels does not offer an obvious way to restore them. An Apple-like product experience means stable spatial hierarchy, compositional clarity, and zero mystery panels.
+
+**Code (PR in development, Issue #12):** Removed the `QDockWidget` layout from `main.py`, replaced QToolBars with inline Studio Header/Context Bar and fixed drawing rail, assembled a central resizable canvas + integrated timeline and a separately scrollable inspector that displays Colors and Layers simultaneously. Preview is compact; Reference is an optional inspector section. View has independent checkable section toggles and Ctrl+Shift+0 default restore; F11 preserves section visibility state. Persist integrated splitter sizes but ignore obsolete floating-dock QSettings state. Replaced dark dock-era presentation with a new light palette, accessible vector tool colors, and card-like inspector sections. No browser UI.
+
+**Verification planned:** Windows offscreen Qt regression asserts no QDockWidget instances, visible Colors+Layers, nonoverlapping canvas/inspector geometry, reactivation from View, reset from all-hidden, exact F11 restoration and tool-aware context. Linux headless engine and Windows Qt matrix plus documentation gate must pass. Manual Windows inspection at ~1100px width and larger remains **NOT VERIFIED**; the user has not yet evaluated this layout. Existing Mellow, Reference Lab, undo/export and recovery regressions remain compulsory.
+
+**CI verified:** [PR #13 Windows/Linux matrix, run 40868655365](https://github.com/VickMASpc/MellowStudio/actions/runs/40868655365) passed all five jobs, including the mandatory docs gate, two Linux engine suites, and **63 passing tests** on each Windows Python version (3.11 and 3.13). The new `test_qt_integrated_workspace_no_docks_and_recoverable_sections` passed on both. An initial run hung because the new test closed an intentionally unsaved test document and correctly triggered the discard confirmation; the fixture was fixed and `pytest-timeout` added to bound future Qt hangs. **Physical Windows visual/product acceptance is still NOT VERIFIED.**
+
+**Status:** CI VERIFIED for the integrated workspace; no manual designer/artist acceptance yet. Scope is a major structural replacement, not a claim of final Apple-level experience. The next work should target observed artist-task friction and onboarding, not speculative architecture.

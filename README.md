@@ -1,4 +1,18 @@
-# Mellow Studio — Artist-first v0.2.4 preview
+# Mellow Studio — 0.2.5 integrated creative workspace
+
+**A proper studio, not floating windows.** Colors and Layers are now permanent, separate sections beside the canvas; the timeline stays underneath; tools live in a narrow left rail. The entire old docking system and its persisted floating positions have been removed. The interface has a new light, quieter visual language.
+
+**Paint without closing anything:** Pick a color from **Colors** on the right and draw immediately in the center. **Layers** remains visible below it. The optional Preview and Reference sections never stack over Colors, and the inspector scrolls instead of overlapping the artwork.
+
+**Can’t find a section?** Open **View → Colors / Layers / Preview / Reference / Timeline** to show it again, or use **View → Restore default workspace** (`Ctrl+Shift+0`) to restore the whole studio. **F11** temporarily hides sections and restores their previous state. The layout splitters adjust the inspector and timeline sizes without dragging a window over the canvas.
+
+**Update on Windows:** From the repo run `.\dev.ps1 sync`, then `.\start_windows.bat`. **Sync is intentionally destructive:** it deletes local-only edits/projects/exports and `.venv` inside the clone, then checks out the latest GitHub `main`; the launcher recreates the virtual environment. Move personal artwork outside the repository folder before syncing.
+
+**Validation:** Qt GUI smoke and regression matrix must pass; physical Windows layout feedback is still required. [Development plan](docs/DEVELOPMENT_PLAN.md) · [Sprint log](docs/SPRINT_LOG.md).
+
+---
+
+## Previous release notes
 
 **Make something move.** A professional studio should feel fast, coherent and pleasant, not like a technical settings console. A new Welcome screen, contextual drawing controls, approachable timeline and one export dialog now put everyday creative work first.
 

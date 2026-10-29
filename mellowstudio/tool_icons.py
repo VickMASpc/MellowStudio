@@ -11,7 +11,7 @@ def tool_icon(tool: str, size: int = 26) -> QIcon:
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     painter.scale(size/26, size/26)
-    painter.setPen(QPen(QColor('#d8e5ed'), 2.0, Qt.PenStyle.SolidLine,
+    painter.setPen(QPen(QColor('#345567'), 2.0, Qt.PenStyle.SolidLine,
                         Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
     painter.setBrush(Qt.BrushStyle.NoBrush)
     if tool == 'pencil':
@@ -24,7 +24,7 @@ def tool_icon(tool: str, size: int = 26) -> QIcon:
         for y in range(4):
             for x in range(4):
                 if (x+y)%2==0:
-                    painter.fillRect(4+x*5,4+y*5,5,5,QColor('#d8e5ed'))
+                    painter.fillRect(4+x*5,4+y*5,5,5,QColor('#345567'))
     elif tool == 'eraser':
         painter.translate(13,13); painter.rotate(-40)
         painter.drawRoundedRect(QRect(-8,-6,16,12),2,2)
@@ -47,7 +47,7 @@ def tool_icon(tool: str, size: int = 26) -> QIcon:
     elif tool == 'ellipse':
         painter.drawEllipse(QRect(4,6,18,14))
     elif tool == 'marquee':
-        painter.setPen(QPen(QColor('#d8e5ed'),2,Qt.PenStyle.DashLine))
+        painter.setPen(QPen(QColor('#345567'),2,Qt.PenStyle.DashLine))
         painter.drawRect(QRect(4,4,18,18))
     elif tool == 'move':
         painter.drawLine(13,3,13,23);painter.drawLine(3,13,23,13)

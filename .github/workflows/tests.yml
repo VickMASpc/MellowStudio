@@ -63,6 +63,6 @@ jobs:
         run: python -m pytest -q --ignore=tests/test_qt_smoke.py
       - name: Run engine and Qt GUI smoke tests (Windows)
         if: runner.os == 'Windows'
-        run: python -m pytest -q
+        run: python -m pytest -vv -x --timeout=25 --timeout-method=thread
       - name: Validate linked hold sample
         run: python -m mellowstudio.cli validate examples/mellow_hold_blink_v02.mellowzip

@@ -2,6 +2,18 @@
 
 **Canonical roadmap:** this file in GitHub. **Current merged baseline:** 0.2.4 artist-first creative workspace (PR #10, CI verified; physical Windows UX acceptance open), following v0.2.3 Reference Lab ([PR #6](https://github.com/VickMASpc/MellowStudio/pull/6)); **remaining reference registration:** [Issue #7](https://github.com/VickMASpc/MellowStudio/issues/7). Reliability work in [Issue #3](https://github.com/VickMASpc/MellowStudio/issues/3) also remains open. Keep the [sprint log](SPRINT_LOG.md) synchronized with each implementation PR. Future phase targets below are not claims of verified functionality.
 
+
+
+## 0.2.5 — Complete workspace replacement, not another dock reskin (2026-10-29)
+
+**User experience finding:** In 0.2.4 the toolbars changed, but the underlying QDockWidget model let Colors, Layers, Preview and Reference stack or detach, leaving a tiny canvas. An artist sometimes had to close the color window before painting and could not easily recover hidden panes. This is a fundamental workflow failure: more features and cleaner styling cannot compensate for unpredictable physical UI.
+
+**New interaction architecture (Issue #12):** Replace all QDockWidget usage with one stable native layout: fixed left tool rail, centered canvas, always-independent Colors and Layers sections in a scrollable right inspector, and integrated timeline beneath the canvas. Preview is a compact additional section; Reference stays available via View and Ctrl+Alt+R without occupying a giant blank area by default. The two user-resizable splitters resize regions; they cannot float over or obscure the canvas. The top command row and contextual tool settings are inline widgets, not dockable toolbars. All sections have View toggles; Restore default workspace (`Ctrl+Shift+0`) restores Colors, Layers, Preview and Timeline regardless of previous visibility. F11 restores its exact prior visibility state. Old saved Qt dock layout blobs are intentionally ignored.
+
+**Visual language:** Replace the old dark dock styling with a calm, light, high-contrast workspace; clear section boundaries, generous canvas space, legible dark vector icons, subtle teal primary actions and less visual noise. Presentation supports the user workflow but is not the sole deliverable.
+
+**Acceptance:** An artist can choose colors, paint on the canvas, manage layers, animate, preview and export *without closing or stacking any windows*. Reset/View is discoverable; core sections are visible simultaneously. Real Windows visual tests at common screen sizes (including 1100px window width) and artist usability remain required, beyond offscreen Qt CI. Existing 41×55 native-pixel regression, project schemas, Reference Lab, undo and export remain supported. Design testing (task completion and real visual review) is the next acceptance gate, not another backend sprint.
+
 ## Product direction correction — artist-first studio (2026-10-28)
 
 **Professional means producing swiftly in a polished and comprehensive creative environment.** The earlier implementation overemphasized technical mechanics and exposed too many controls. Correctness remains required, but the experience of starting, drawing, animating and exporting is the primary product outcome.
