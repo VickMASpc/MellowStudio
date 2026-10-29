@@ -35,7 +35,7 @@ from .studio_theme import STUDIO_QSS
 from .cli import export as export_native
 
 APP_TITLE = 'Mellow Studio'
-VERSION = '0.2.5-dev'
+VERSION = '0.2.6-dev'
 
 
 class Swatch(QPushButton):
