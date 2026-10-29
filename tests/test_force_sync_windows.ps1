@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $fixture = Join-Path ([System.IO.Path]::GetTempPath()) ('mellow-sync-' + [guid]::NewGuid().ToString('N'))
 $remote = Join-Path $fixture 'remote.git'
 $seed = Join-Path $fixture 'seed'
-$work = Join-Path $fixture 'work'
+$work = Join-Path (Join-Path $fixture 'Nova pasta (8)') 'MellowStudio'
 $origin = 'https://github.com/VickMASpc/MellowStudio.git'
 
 function Check([string]$step) {
@@ -32,6 +32,7 @@ try {
     & git -C $seed remote add origin $remote
     & git -C $seed push -u origin main | Out-Null
     Check 'Push seed'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $work) | Out-Null
     & git clone $remote $work | Out-Null
     Check 'Clone local worktree'
     # The literal origin remains GitHub and passes the production safety guard.
@@ -80,6 +81,19 @@ try {
         if (Test-Path (Join-Path $work $name)) { throw "Force sync left $name behind." }
     }
 
+    # Do not mistake a subdirectory of the checkout for a second root.
+    # The preflight must refuse it without cleaning the *parent* repository.
+    $nested = Join-Path $work 'not-the-root'
+    New-Item -ItemType Directory -Force -Path (Join-Path $nested 'scripts') | Out-Null
+    Copy-Item (Join-Path $work 'scripts/sync_windows.ps1') (Join-Path $nested 'scripts/sync_windows.ps1')
+    Set-Content (Join-Path $work 'version.txt') 'keep my work in parent'
+    & pwsh -NoProfile -File (Join-Path $nested 'scripts/sync_windows.ps1') 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { throw 'Nested script was allowed to wipe its parent Git repository.' }
+    if ((Get-Content (Join-Path $work 'version.txt') -Raw).Trim() -ne 'keep my work in parent') {
+        throw 'Nested checkout guard destroyed files.'
+    }
+    Remove-Item -LiteralPath $nested -Recurse -Force
+
     # The guard must refuse to touch the wrong repo before destruction.
     Set-Content (Join-Path $work 'version.txt') 'keep me'
     & git -C $work remote set-url origin 'https://github.com/other-org/other-repo.git'
@@ -89,7 +103,7 @@ try {
     if ((Get-Content (Join-Path $work 'version.txt') -Raw).Trim() -ne 'keep me') {
         throw 'Failed preflight destroyed local edits.'
     }
-    Write-Host 'Force-sync integration: all checks passed.'
+    Write-Host 'Force-sync integration: spaces/parentheses root, nested checkout refusal, and all destructive checks passed.'
 } finally {
     if (Test-Path $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction SilentlyContinue }
 }
