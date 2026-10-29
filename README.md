@@ -208,6 +208,19 @@ if ($LASTEXITCODE -ne 0) { throw "Checkout failed" }
 
 This replaces the broken updater **without** cleaning the folder. Artwork and Python dependencies already present are retained. Tracked source edits are discarded to match GitHub; personal project files should ideally be stored outside tracked source paths.
 
+
+### QtCore DLL load error on Windows
+
+A trace ending in `ImportError: DLL load failed while importing QtCore` means the *native Qt library* could not load; it does **not** by itself mean Python is broken. Mellow now verifies QtCore, QtGui and QtWidgets at launch rather than assuming `import PySide6` is enough. When an existing environment has broken Qt bindings, it tries a **single targeted repair of PySide6 only**, and preserves all other packages, user files and the existing `.venv`. The project pins PySide6 6.10.2 to avoid silently picking a new major Qt binary release on fresh environments.
+
+For a diagnostic without reinstalling anything, run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_qt_windows.py
+```
+
+This prints the actual Qt package versions, file locations and Windows runtime DLL loadability if QtCore cannot import. Missing system DLLs or conflicting native libraries require a separate diagnosis; Mellow does not repeatedly wipe/reinstall dependencies.
+
 ## GitHub development workflow
 
 This repository is the **single source of truth** from v0.2.0 forward. Do not unpack new versions into new folders. Make small feature branches, run tests, open PRs, and merge once green. Avoid committing generated `.venv`, caches, packaging output, or autosaves.
