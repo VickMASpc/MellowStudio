@@ -72,6 +72,7 @@ jobs:
         run: |
           python -S scripts/check_qt_windows.py *> $null
           if ($LASTEXITCODE -eq 0) { throw 'Broken Qt import was not detected.' }
+          exit 0
       - name: Compile all modules
         run: python -m compileall -q mellowstudio
       - name: Run headless engine tests (Linux)
