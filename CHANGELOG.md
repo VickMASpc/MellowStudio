@@ -1,6 +1,16 @@
 # Changelog
 
 
+
+## 0.2.6 — Real dock windows and proper color editor
+
+- Reversed the incorrect removal of detachable windows. Restored native movable/floating/closable Qt docks with sensible nonoverlapping Colors + Layers defaults and easy View/Reset recovery.
+- Colors now has a direct HSV saturation/brightness field, hue slider, hex text and RGB values, editable foreground/secondary colors, and palette add/replace/remove.
+- Palette edits support undo. Advanced system color picker remains available, but is no longer the only practical way to choose a color.
+- Added GUI tests that exercise floating/docked windows, closed-panel recovery, canvas space, exact RGB/hex editing, and palette mutations.
+
+
+
 ## Windows Qt package-version correction (2026-10-29)
 
 - Check **the installed version of every Qt binding** before launching. A stale PySide6 6.12 environment no longer passes a PySide6 6.10.2 requirement check.
